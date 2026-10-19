@@ -61,6 +61,7 @@ class Completion:
     finish_reason: str | None = None
     usage: dict | None = None
     recoveries: int = 0
+    incomplete: str | None = None
 
     def ingest(self, frame):
         if "error" in frame:
@@ -104,9 +105,11 @@ class Completion:
             {"index": 0, "message": self.message(hide_thinking), "finish_reason": self.finish_reason}]}
         if self.usage is not None:
             result["usage"] = self.usage
-        if self.recoveries:
-            result["saker_guard"] = {"recoveries": self.recoveries,
-                                     "usage_scope": "final_attempt_only"}
+        if self.recoveries or self.incomplete:
+            info = {"recoveries": self.recoveries, "usage_scope": "final_attempt_only"}
+            if self.incomplete:
+                info["incomplete"] = self.incomplete
+            result["saker_guard"] = info
         return result
 
 
@@ -233,7 +236,15 @@ def prepare_request(body):
     return request
 
 
-def read_attempt(config, body, result, authorization, deadline, cancelled):
+def read_attempt(config, body, result, authorization, deadline, cancelled,
+                 min_repeats=4, min_chars=128, expected=None):
+    """Read one upstream attempt, returning (channel, loop) if a loop appears mid-stream.
+
+    `expected` maps a channel to the assistant text the engine is expected to echo back. Detection
+    must ignore that echo: counting it as model output inflates the copy count and cuts the stream
+    on a loop that is not there.
+    """
+    expected = expected or {}
     result.finish_reason, result.usage = None, None
     events = upstream_events(config, body, authorization, deadline, cancelled)
     try:
@@ -242,12 +253,21 @@ def read_attempt(config, body, result, authorization, deadline, cancelled):
             result.ingest(frame)
             if len(result.content) + len(result.reasoning_content) > config.max_output_chars:
                 raise GuardError("output_limit", "Generated output exceeded the guard's character limit.")
-            for channel, previous in zip(("reasoning_content", "content"), before):
+            for channel, previous in zip(CHANNELS, before):
                 text = getattr(result, channel)
-                if len(text) != previous:
-                    loop = detect_loop(text, config.tail_chars)
-                    if loop:
-                        return channel, loop
+                if len(text) == previous:
+                    continue
+                effective, offset = text, 0
+                echo = expected.get(channel)
+                if echo:
+                    if text.startswith(echo):
+                        effective, offset = text[len(echo):], len(echo)
+                    elif echo.startswith(text):
+                        effective = ""  # the echo is still arriving; nothing generated yet
+                loop = detect_loop(effective, config.tail_chars, min_repeats, min_chars)
+                if loop:
+                    # Offsets are relative to the echo-stripped text; rebase onto the real text.
+                    return channel, Loop(loop.kind, loop.start + offset, loop.period)
     finally:
         # Do this before a summary/continuation: a single-slot engine must release
         # the abandoned task, not keep generating while the next call queues.
@@ -307,6 +327,26 @@ def continuation_request(original, result, channel):
     return body
 
 
+def restart_request(original, result, channel):
+    """Escalation: re-ask WITHOUT anchoring the model to the looping text.
+
+    Measured: `continue_final_message` keeps the model in the groove it was looping in, so after a
+    compaction it often repeats rather than answers. Here the preserved progress is supplied as
+    context and a fresh assistant turn is generated instead of continuing the poisoned message.
+    """
+    body = prepare_request(original)
+    body["messages"].append({"role": "user", "content": (
+        "The previous attempt to answer was interrupted by a repetition guard because it started "
+        "repeating itself. Progress already made, which may be partial:\n\n"
+        + getattr(result, channel) +
+        "\n\nDo not repeat any of that text and do not stop early. Continue from that progress "
+        "and finish the original answer now.")})
+    body["add_generation_prompt"] = True
+    body["cache_prompt"] = False
+    body.pop("seed", None)
+    return body
+
+
 def summarize_tail(config, original, tail, authorization, deadline, cancelled):
     """Use the same loaded Swift/MTP model, never a second model or a tool call."""
     request = {
@@ -336,17 +376,28 @@ def guarded_completion(config, original, authorization, cancelled):
     body = prepare_request(original)
     deadline = time.monotonic() + config.timeout
     result = Completion()
+    expected = {}
     while True:
         before = {channel: getattr(result, channel) for channel in CHANNELS}
-        detected = read_attempt(config, body, result, authorization, deadline, cancelled)
-        echoed = reconcile(result, before)
+        # After a recovery the model is known to be in a groove, so a shorter repeat run counts.
+        min_repeats, min_chars = (3, 96) if result.recoveries else (4, 128)
+        detected = read_attempt(config, body, result, authorization, deadline, cancelled,
+                                min_repeats, min_chars, expected)
+        # Must run on EVERY continuation, not only when a loop was detected: the echo
+        # duplication also occurs on a successful continuation.
+        echoed = bool(expected) and reconcile(result, before)
         if detected and echoed:
             # The "loop" may have been our own echoed prefix arriving twice; re-derive
             # detection against the reconciled text before acting on it.
             channel = detected[0]
-            rederived = detect_loop(getattr(result, channel), config.tail_chars)
+            rederived = detect_loop(getattr(result, channel), config.tail_chars,
+                                    min_repeats, min_chars)
             detected = (channel, rederived) if rederived else None
         if not detected:
+            if result.finish_reason is None:
+                # A detection was invalidated after we cut the stream short, so upstream never sent
+                # its finish reason. Claiming success here would hand back a truncated answer.
+                raise GuardError("incomplete_stream", "Upstream closed without a finish reason.")
             if config.hide_thinking and re.search(r"(?is)^\s*<think>|<think>.*?</think>", result.content):
                 raise GuardError("unparsed_reasoning", "Upstream did not separate thinking from answer text; nothing was returned.")
             if (result.finish_reason == "length" and not result.content.strip()
@@ -357,22 +408,40 @@ def guarded_completion(config, original, authorization, cancelled):
                     "The model used its whole token budget without producing an answer "
                     "(it was most likely still reasoning, which this guard hides). "
                     "Raise max_tokens, set a reasoning budget, or send reasoning_effort='none'."))
+            if result.recoveries and result.finish_reason == "stop":
+                # Live probe B2: after a compaction the model can emit a couple more copies and stop
+                # by itself. That is too short to cut on, but it is not a finished answer either.
+                for channel in CHANNELS:
+                    if detect_loop(getattr(result, channel), config.tail_chars, 2, 64):
+                        result.incomplete = "still_repetitive"
+                        LOG.warning("recovered once but output is still repetitive; flagging incomplete")
+                        break
             return result
         channel, loop = detected
         if not safe_to_compact(original, result):
             raise GuardError("unsafe_compaction", "Loop detected in a structured/tool response; it was not rewritten.")
-        if result.recoveries >= config.max_recoveries:
-            raise GuardError("loop_recovery_exhausted", "The model kept looping after the allowed recovery attempts.")
         text = getattr(result, channel)
         if loop.kind == "exact":
             compacted = compact_exact(text, loop)
         else:
             summary = summarize_tail(config, original, text[loop.start:], authorization, deadline, cancelled)
             compacted = text[:loop.start] + "[Compacted repeated text: " + summary + "]\n"
+        # Always strip the loop before returning anything, including the partial path below.
         setattr(result, channel, compacted)
+        if result.recoveries >= config.max_recoveries:
+            # Best effort rather than discarding everything: the repetition is gone and the
+            # caller is told plainly that the answer is unfinished.
+            result.incomplete = "loop_recovery_exhausted"
+            result.finish_reason = result.finish_reason or "stop"
+            LOG.warning("loop recovery exhausted; returning best-effort partial (%d chars)", len(compacted))
+            return result
         result.recoveries += 1
-        LOG.info("loop recovered channel=%s kind=%s attempt=%d", channel, loop.kind, result.recoveries)
-        body = continuation_request(original, result, channel)
+        escalate = result.recoveries > 1
+        body = restart_request(original, result, channel) if escalate else continuation_request(original, result, channel)
+        # Only a continuation can echo the assistant message back; a fresh restart cannot.
+        expected = {} if escalate else {ch: getattr(result, ch) for ch in CHANNELS}
+        LOG.info("loop recovered channel=%s kind=%s attempt=%d mode=%s",
+                 channel, loop.kind, result.recoveries, "restart" if escalate else "continue")
 
 
 def make_server(address, config):
@@ -455,11 +524,17 @@ class Loop:
     period: int = 0
 
 
-def detect_loop(text: str, window: int = 4096) -> Loop | None:
-    """Conservative suffix detector; ordinary formatting is not a repetition signal."""
+def detect_loop(text: str, window: int = 4096, min_repeats: int = 4, min_chars: int = 128) -> Loop | None:
+    """Conservative suffix detector; ordinary formatting is not a repetition signal.
+
+    Defaults (4 repeats / 128 chars) are the false-positive-safe setting. Once a recovery has
+    already happened the model is known to be in a groove, so callers tighten to (3 / 96) and a
+    short run of repeats is enough to act on.
+    """
     tail = text[-window:]
-    for period in range(1, min(1024, len(tail) // 4) + 1):
-        repeats = max(4, (128 + period - 1) // period)
+    # A period can only repeat min_repeats times if it is at most len(tail)/min_repeats long.
+    for period in range(1, min(1024, len(tail) // min_repeats) + 1):
+        repeats = max(min_repeats, (min_chars + period - 1) // period)
         if period * repeats > len(tail):
             continue
         unit = tail[-period:]

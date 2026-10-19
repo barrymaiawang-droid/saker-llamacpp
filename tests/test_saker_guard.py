@@ -39,13 +39,13 @@ def fake_upstream(scenarios):
             self.send_header("Content-Type", "text/event-stream")
             self.end_headers()
             try:
-                if scenario.get("echo"):
-                    # Measured llama.cpp behaviour: continue_final_message returns the
-                    # whole assistant message, not only the newly generated tokens.
-                    channel = body.get("continue_final_message", "content")
+                # Measured llama.cpp behaviour: continue_final_message returns the WHOLE assistant
+                # message, not only the newly generated tokens. The fake always mirrors that.
+                channel = body.get("continue_final_message")
+                if isinstance(channel, str):
                     for message in reversed(body.get("messages", [])):
                         if message.get("role") == "assistant":
-                            if isinstance(channel, str) and message.get(channel):
+                            if message.get(channel):
                                 frame = {"id": "chatcmpl-test", "created": 123, "model": "swift",
                                          "choices": [{"index": 0,
                                                       "delta": {channel: message[channel]},
@@ -121,15 +121,52 @@ class DetectionTests(unittest.TestCase):
 
 
 class ProxyTests(unittest.TestCase):
-    def test_two_recoveries_then_an_explicit_error_without_leaking_failed_output(self):
-        upstream, requests = fake_upstream([{"deltas": [{"reasoning_content": "Let me reconsider this again. " * 12}]}])
+    def test_shorter_repeat_run_is_caught_once_a_recovery_has_already_happened(self):
+        # Probe B2 live: after one compaction the model emitted only 3 copies and stopped, so the
+        # 4-repeat threshold never fired and the caller got a useless 200. After a recovery the
+        # threshold drops to 3, which escalates to the restart instead.
+        unit = "I am still working through this step\n"
+        upstream, requests = fake_upstream([
+            {"deltas": [{"content": unit * 12}]},
+            {"deltas": [{"content": unit * 3}]},
+            {"deltas": [{"content": "The answer is 150 minutes."}]},
+        ])
         with running(upstream) as upstream_url:
             with running(make_server(("127.0.0.1", 0), Config(upstream=upstream_url))) as url:
-                status, raw, _ = chat(url, stream=True)
-        self.assertEqual(status, 502)
-        self.assertEqual(json.loads(raw)["error"]["code"], "loop_recovery_exhausted")
+                status, raw, _ = chat(url)
+        self.assertEqual(status, 200, raw)
+        body = json.loads(raw)
+        guard = body["saker_guard"]
+        self.assertEqual(guard["recoveries"], 2)
+        self.assertNotIn("incomplete", guard)
+        content = body["choices"][0]["message"]["content"]
+        self.assertLessEqual(content.count(unit.strip()), 3)
+        self.assertIn("150", content)
+        # recovery 1 = continue, recovery 2 = restart
+        self.assertEqual(requests[1]["continue_final_message"], "content")
+        self.assertNotIn("continue_final_message", requests[2])
+
+    def test_escalation_then_best_effort_partial_instead_of_discarding_everything(self):
+        unit = "Let me reconsider this again. "
+        upstream, requests = fake_upstream([{"deltas": [{"reasoning_content": unit * 12}]}])
+        with running(upstream) as upstream_url:
+            with running(make_server(("127.0.0.1", 0),
+                                     Config(upstream=upstream_url, hide_thinking=False))) as url:
+                status, raw, _ = chat(url)
+        self.assertEqual(status, 200, raw)
+        guard = json.loads(raw)["saker_guard"]
+        self.assertEqual(guard["recoveries"], 2)
+        self.assertEqual(guard["incomplete"], "loop_recovery_exhausted")
+        # The repetition is stripped even on the partial path, so it never reaches the caller in bulk.
+        self.assertLessEqual(raw.count(b"Let me reconsider"), 2)
         self.assertEqual(len(requests), 3)
-        self.assertNotIn(b"Let me reconsider", raw)
+        # Ladder: recovery 1 continues the message; recovery 2 restarts without anchoring to it.
+        self.assertEqual(requests[1]["continue_final_message"], "reasoning_content")
+        self.assertFalse(requests[1]["add_generation_prompt"])
+        self.assertNotIn("continue_final_message", requests[2])
+        self.assertTrue(requests[2]["add_generation_prompt"])
+        # The restart carries preserved progress as context, not as a message to continue.
+        self.assertIn(unit.strip(), requests[2]["messages"][-1]["content"])
 
     def test_structured_output_is_never_compacted(self):
         for extra, prefix in [({"response_format": {"type": "json_object"}}, ""), ({}, "```python\n")]:
