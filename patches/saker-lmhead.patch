@@ -1,0 +1,797 @@
+diff --git a/common/speculative.cpp b/common/speculative.cpp
+index cd2dfc760..d19c20346 100644
+--- a/common/speculative.cpp
++++ b/common/speculative.cpp
+@@ -1,5 +1,22 @@
+ #include "speculative.h"
+ 
++// saker: force-drain the draft context GPU work in its own window so it is
++// attributed to the call that submitted it instead of leaking into the next
++// target sync. Env-gated: SAKER_SYNC_DFT=1
++static double saker_dft_drain_us = 0.0;
++static int    saker_dft_drain_n  = 0;
++static bool   saker_sync_dft_on() { static const bool v = getenv("SAKER_SYNC_DFT") != nullptr; return v; }
++static void saker_sync_dft(struct llama_context * ctx_dft) {
++    if (!saker_sync_dft_on()) return;
++    const int64_t t0 = ggml_time_us();
++    llama_synchronize(ctx_dft);
++    saker_dft_drain_us += ggml_time_us() - t0;
++    saker_dft_drain_n++;
++}
++double saker_dft_drain_get_us() { return saker_dft_drain_us; }
++int    saker_dft_drain_get_n()  { return saker_dft_drain_n; }
++
++
+ #include "common.h"
+ #include "ggml.h"
+ #include "ggml-cpp.h"
+@@ -264,6 +281,7 @@ struct common_speculative_impl_draft_simple : public common_speculative_impl {
+         batch_dft.logits = nullptr;
+ 
+         const int ret = llama_decode(ctx_dft, batch_dft);
++        saker_sync_dft(ctx_dft);  // saker
+ 
+         if (ret != 0) {
+             SPC_ERR("failed to decode draft batch, ret = %d\n", ret);
+@@ -298,6 +316,7 @@ struct common_speculative_impl_draft_simple : public common_speculative_impl {
+         }
+ 
+         int ret = llama_decode(ctx_dft, batch);
++        saker_sync_dft(ctx_dft);  // saker
+         if (ret != 0) {
+             SPC_ERR("llama_decode returned %d\n", ret);
+             return;
+@@ -362,6 +381,7 @@ struct common_speculative_impl_draft_simple : public common_speculative_impl {
+ 
+             // evaluate the drafted tokens on the draft model
+             ret = llama_decode(ctx_dft, batch);
++            saker_sync_dft(ctx_dft);  // saker
+             if (ret != 0) {
+                 SPC_ERR("llama_decode[%d] returned %d\n", i, ret);
+                 break;
+@@ -706,6 +726,7 @@ struct common_speculative_impl_draft_eagle3 : public common_speculative_impl {
+ 
+         if (batch.n_tokens > 0) {
+             const int32_t rc = llama_decode(ctx_dft, batch);
++            saker_sync_dft(ctx_dft);  // saker
+             if (rc != 0) {
+                 SPC_ERR("llama_decode(ctx_dft) failed rc=%d (n_tokens=%d, ubatch_pos[0]=%d)\n",
+                         rc, (int) batch.n_tokens, (int) batch_in.pos[0]);
+@@ -758,6 +779,7 @@ struct common_speculative_impl_draft_eagle3 : public common_speculative_impl {
+         }
+ 
+         int ret = llama_decode(ctx_dft, batch);
++        saker_sync_dft(ctx_dft);  // saker
+         if (ret != 0) {
+             SPC_ERR("llama_decode returned %d\n", ret);
+             return;
+@@ -823,6 +845,7 @@ struct common_speculative_impl_draft_eagle3 : public common_speculative_impl {
+             }
+ 
+             ret = llama_decode(ctx_dft, batch);
++            saker_sync_dft(ctx_dft);  // saker
+             if (ret != 0) {
+                 SPC_ERR("llama_decode[%d] returned %d\n", i, ret);
+                 break;
+@@ -1142,6 +1165,7 @@ struct common_speculative_impl_draft_dflash : public common_speculative_impl {
+                     batch_inject.logits[i]    = false;
+                 }
+                 rc = llama_decode(ctx_dft, batch_inject);
++                saker_sync_dft(ctx_dft);  // saker
+                 if (rc != 0) {
+                     LOG_ERR("%s: llama_decode(ctx_dft) failed rc=%d (n_tokens=%d, offset=%d)\n",
+                             __func__, rc, (int) n_chunk, (int) offset);
+@@ -1189,6 +1213,7 @@ struct common_speculative_impl_draft_dflash : public common_speculative_impl {
+ 
+         // decode all sequence's noise block in a single batch
+         int ret = llama_decode(ctx_dft, batch);
++        saker_sync_dft(ctx_dft);  // saker
+         if (ret != 0) {
+             LOG_WRN("%s: llama_decode returned %d\n", __func__, ret);
+             return;
+@@ -1307,6 +1332,10 @@ struct common_speculative_impl_draft_mtp : public common_speculative_impl {
+     std::vector<int>                i_last;
+     std::vector<std::vector<float>> chain_h;
+ 
++    // saker: MTP draft-head shortlist state (SAKER_SHORTLIST=K)
++    int32_t              cand_k  = 0;
++    std::vector<int32_t> cand_ids;
++
+     common_speculative_impl_draft_mtp(const common_params_speculative & params, uint32_t n_seq)
+         : common_speculative_impl(COMMON_SPECULATIVE_TYPE_DRAFT_MTP, n_seq)
+         , params(params.draft)
+@@ -1346,8 +1375,13 @@ struct common_speculative_impl_draft_mtp : public common_speculative_impl {
+         }
+ 
+         // offload draft sampling to the backend
++        // saker: with the shortlist active the draft's logits tensor is narrow ([K]
++        // candidate scores) and a backend sampler would return the COLUMN INDEX as the
++        // token id. Keep sampling on the host, where the readback has rebuilt the
++        // full-width restricted row (score at the true token position, -inf elsewhere).
+         backend_chains.assign(n_seq, nullptr);
+-        if (this->params.backend_sampling) {
++        const bool saker_sl_on = llama_model_mtp_shortlist_k(llama_get_model(ctx_dft)) > 0;
++        if (this->params.backend_sampling && !saker_sl_on) {
+             for (llama_seq_id seq_id = 0; seq_id < (llama_seq_id) n_seq; ++seq_id) {
+                 llama_sampler * chain = llama_sampler_chain_init(llama_sampler_chain_default_params());
+                 llama_sampler_chain_add(chain, llama_sampler_init_top_k(10));
+@@ -1384,6 +1418,11 @@ struct common_speculative_impl_draft_mtp : public common_speculative_impl {
+ 
+         verify_h.assign(n_seq, {});
+         verify_h_rows.assign(n_seq, 0);
++
++        cand_k = llama_model_mtp_shortlist_k(llama_get_model(ctx_dft));
++        if (cand_k > 0) {
++            cand_ids.assign(cand_k, 0);
++        }
+     }
+ 
+     ~common_speculative_impl_draft_mtp() override {
+@@ -1505,6 +1544,7 @@ struct common_speculative_impl_draft_mtp : public common_speculative_impl {
+                 }
+ 
+                 const int32_t rc = llama_decode(ctx_dft, batch);
++                saker_sync_dft(ctx_dft);  // saker
+                 if (rc != 0) {
+                     SPC_ERR("llama_decode(ctx_dft) head=%d failed rc=%d (pos=%d)\n",
+                             head, (int) rc, (int) batch_in.pos[0]);
+@@ -1539,6 +1579,47 @@ struct common_speculative_impl_draft_mtp : public common_speculative_impl {
+                     verify_h[seq_id].data() + (size_t) (n_rows - 1) * n_embd, row_bytes);
+         }
+ 
++        if (cand_k > 0) {
++            // saker: refresh the shortlist from the target's logits at the last position it
++            // processed - that is exactly the distribution the next draft step predicts one
++            // step ahead of, and its argmax (rank 1) is inside the top-K by construction.
++            // NOTE: single-sequence use (n_seq == 1), which is the harness configuration.
++            const int32_t i_end = i_batch_end[0] >= 0 ? i_batch_end[0] : (n_tokens - 1);
++            const float * lg = llama_get_logits_ith(ctx_tgt, i_end);
++            if (lg != nullptr) {
++                const int32_t n_vocab = llama_vocab_n_tokens(llama_model_get_vocab(llama_get_model(ctx_tgt)));
++
++                auto gt = [](const std::pair<float, int32_t> & a, const std::pair<float, int32_t> & b) {
++                    return a.first > b.first;
++                };
++
++                std::vector<std::pair<float, int32_t>> heap;
++                heap.reserve(cand_k + 1);
++                for (int32_t t = 0; t < n_vocab; ++t) {
++                    const float s = lg[t];
++                    if ((int32_t) heap.size() < cand_k) {
++                        heap.push_back({s, t});
++                        std::push_heap(heap.begin(), heap.end(), gt);
++                    } else if (s > heap.front().first) {
++                        std::pop_heap(heap.begin(), heap.end(), gt);
++                        heap.back() = {s, t};
++                        std::push_heap(heap.begin(), heap.end(), gt);
++                    }
++                }
++                for (int32_t j = 0; j < cand_k; ++j) {
++                    cand_ids[j] = j < (int32_t) heap.size() ? heap[j].second : 0;
++                }
++                llama_set_mtp_candidates(llama_get_model(ctx_dft), cand_ids.data(), cand_k);
++                if (getenv("SAKER_SL_DEBUG")) {
++                    LOG_INF("saker-sl: cand[0..7] =");
++                    for (int32_t j = 0; j < cand_k && j < 8; ++j) {
++                        LOG_INF(" %d", cand_ids[j]);
++                    }
++                    LOG_INF("\n");
++                }
++            }
++        }
++
+         return true;
+     }
+ 
+@@ -1594,6 +1675,7 @@ struct common_speculative_impl_draft_mtp : public common_speculative_impl {
+             }
+ 
+             int ret = llama_decode(ctx_dft, batch);
++            saker_sync_dft(ctx_dft);  // saker
+             if (ret != 0) {
+                 SPC_ERR("llama_decode[%d] returned %d\n", i, ret);
+                 break;
+@@ -2633,7 +2715,12 @@ void common_speculative_draft(common_speculative * spec) {
+     for (auto & impl : spec->impls) {
+         {
+             common_time_meas tm(impl->t_draft_us, !impl->gen_perf);
++            const int64_t saker_t0 = ggml_time_us();
+             impl->draft(dparams);
++            const int64_t saker_t1 = ggml_time_us();
++            if (getenv("SAKER_SPEC_TRACE")) {
++                LOG_INF("saker-spec: draft() = %.2f ms\n", (saker_t1 - saker_t0) / 1000.0);
++            }
+             impl->n_call_draft++;
+         }
+ 
+diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+index ff4a33904..11c150851 100644
+--- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
++++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+@@ -7751,6 +7751,12 @@ static vk_pipeline ggml_vk_get_dequantize_mul_mat_vec(ggml_backend_vk_context *
+     GGML_ASSERT(b_type == GGML_TYPE_F32 || b_type == GGML_TYPE_F16 || b_type == GGML_TYPE_Q8_1);
+     GGML_ASSERT(num_cols >= 1 && num_cols <= mul_mat_vec_max_cols);
+ 
++    if (num_cols > 1 && getenv("SAKER_VK_TRACE")) {
++        fprintf(stderr, "saker-vk: matvec num_cols=%u a_type=%d b_type=%d -> %s\n",
++                (unsigned) num_cols, (int) a_type, (int) b_type,
++                b_type == GGML_TYPE_Q8_1 ? "Q8_1_INTDOT" : (b_type == GGML_TYPE_F32 ? "F32" : "F16"));
++    }
++
+     if (b_type == GGML_TYPE_Q8_1) {
+         switch (a_type) {
+             case GGML_TYPE_Q2_0:
+@@ -9192,6 +9198,7 @@ static void ggml_vk_mul_mat_q_f16(ggml_backend_vk_context * ctx, vk_context& sub
+     const bool y_f32_kernel = src1->type == GGML_TYPE_F32 && !y_non_contig;
+ 
+     bool quantize_y = ctx->device->integer_dot_product && src1->type == GGML_TYPE_F32 && ggml_is_contiguous(src1) && !y_non_contig && (ne11 * ne10) % 4 == 0;
++    if (const char * saker_qy = getenv("SAKER_FORCE_QY")) { quantize_y = (saker_qy[0] == '1'); }
+ 
+     // Check for mmq first
+     vk_matmul_pipeline mmp = quantize_y ? ggml_vk_get_mul_mat_mat_pipeline(ctx, src0->type, GGML_TYPE_Q8_1, (ggml_prec)dst->op_params[0]) : nullptr;
+diff --git a/ggml/src/ggml-vulkan/vulkan-shaders/mul_mat_vec.comp b/ggml/src/ggml-vulkan/vulkan-shaders/mul_mat_vec.comp
+index 5a9d0e778..d1c282183 100644
+--- a/ggml/src/ggml-vulkan/vulkan-shaders/mul_mat_vec.comp
++++ b/ggml/src/ggml-vulkan/vulkan-shaders/mul_mat_vec.comp
+@@ -44,54 +44,71 @@ vec4 load_b(const uint j, const uint iybs, const uint iqs, const bool lastiter,
+ 
+ void iter(inout FLOAT_TYPE temp[NUM_COLS][NUM_ROWS], const uint first_row, const uint num_rows, const uint tid, const uint i, bool lastiter)
+ {
+-    [[unroll]] for (uint j = 0; j < NUM_COLS; ++j) {
+-        const uint col = i*BLOCK_SIZE + K_PER_ITER*tid;
+-        const uint iqs = (col%QUANT_K)/QUANT_R; // quant index
+-        const uint iybs = col - col%QUANT_K; // y block start index
++    const uint col = i*BLOCK_SIZE + K_PER_ITER*tid;
++    const uint iqs = (col%QUANT_K)/QUANT_R; // quant index
++    const uint iybs = col - col%QUANT_K; // y block start index
+ 
+ #if K_PER_ITER == 8
++    // saker: b depends only on the column j; the dequantized weights depend only on the
++    // row n. Load every b vector once, then dequantize each weight block ONCE and reuse it
++    // across all columns. The previous loop order (j outer, dequant inside the n loop) redid
++    // the dequant NUM_COLS times per block, which is what makes the multi-column matvec
++    // compute-bound and superlinear in NUM_COLS. Pure loop-invariant motion: the dequant is
++    // a pure function of (ib, iqs, a_offset) and does not depend on j, so the results are
++    // bit-identical by construction.
++    vec4 bv0s[NUM_COLS];
++    vec4 bv1s[NUM_COLS];
++    [[unroll]] for (uint j = 0; j < NUM_COLS; ++j) {
+ #if QUANT_R == 2
+         // Note that we end up fetching bogus elements here, but its fine as they'll be
+         // within an accessible block.
+         const vec4 bv02 = vec4(data_b_v4[(j*p.batch_stride_b + b_offset + iybs + iqs) / 4]);
+         const vec4 bv13 = vec4(data_b_v4[(j*p.batch_stride_b + b_offset + iybs + iqs + y_offset) / 4]);
+-        const vec4 bv0 = vec4(bv02.x, bv13.x, bv02.y, bv13.y);
+-        const vec4 bv1 = vec4(bv02.z, bv13.z, bv02.w, bv13.w);
++        bv0s[j] = vec4(bv02.x, bv13.x, bv02.y, bv13.y);
++        bv1s[j] = vec4(bv02.z, bv13.z, bv02.w, bv13.w);
+ #else
+-        const vec4 bv0 = vec4(data_b_v4[(j*p.batch_stride_b + b_offset + iybs + iqs) / 4]);
+-        const vec4 bv1 = vec4(data_b_v4[(j*p.batch_stride_b + b_offset + iybs + iqs) / 4 + 1]);
++        bv0s[j] = vec4(data_b_v4[(j*p.batch_stride_b + b_offset + iybs + iqs) / 4]);
++        bv1s[j] = vec4(data_b_v4[(j*p.batch_stride_b + b_offset + iybs + iqs) / 4 + 1]);
+ #endif
+-#else
+-        bool OOB_y;
+-        bool OOB_z;
+-        bool OOB_w;
++    }
+ 
+-        const vec4 b = load_b(j, iybs, iqs, lastiter, OOB_y, OOB_z, OOB_w);
+-#endif
+-        uint ibi = first_row*p.ncols;
+-        [[unroll]] for (uint n = 0; n < num_rows; ++n) {
+-            const uint ib = (ibi + col)/QUANT_K; // block index
+-            ibi += p.ncols;
++    uint ibi = first_row*p.ncols;
++    [[unroll]] for (uint n = 0; n < num_rows; ++n) {
++        const uint ib = (ibi + col)/QUANT_K; // block index
++        ibi += p.ncols;
+ 
+-#if K_PER_ITER == 8
+-            vec4 v = dequantize4(ib, iqs, a_offset);
+-            vec4 v2 = dequantize4(ib, iqs+(4/QUANT_R), a_offset);
++        vec4 v = dequantize4(ib, iqs, a_offset);
++        vec4 v2 = dequantize4(ib, iqs+(4/QUANT_R), a_offset);
+ 
+-            const vec2 dm = get_dm(ib, a_offset);
+-            if (dm.y != 0) { // quant has min component
+-                v = v * dm.x + dm.y;
+-                v2 = v2 * dm.x + dm.y;
+-            }
++        const vec2 dm = get_dm(ib, a_offset);
++        if (dm.y != 0) { // quant has min component
++            v = v * dm.x + dm.y;
++            v2 = v2 * dm.x + dm.y;
++        }
+ 
++        [[unroll]] for (uint j = 0; j < NUM_COLS; ++j) {
+             // matrix multiplication
+-            FLOAT_TYPE rowtmp = dot(bv0, v);
+-            rowtmp += dot(bv1, v2);
++            FLOAT_TYPE rowtmp = dot(bv0s[j], v);
++            rowtmp += dot(bv1s[j], v2);
+ 
+             if (dm.y == 0)
+                 rowtmp *= dm.x;
+ 
+             temp[j][n] += rowtmp;
++        }
++    }
+ #else
++    bool OOB_y;
++    bool OOB_z;
++    bool OOB_w;
++
++    [[unroll]] for (uint j = 0; j < NUM_COLS; ++j) {
++        const vec4 b = load_b(j, iybs, iqs, lastiter, OOB_y, OOB_z, OOB_w);
++        uint ibi = first_row*p.ncols;
++        [[unroll]] for (uint n = 0; n < num_rows; ++n) {
++            const uint ib = (ibi + col)/QUANT_K; // block index
++            ibi += p.ncols;
++
+             if (!OOB_w) {
+                 const vec4 v = dequantize4(ib, iqs, a_offset);
+                 temp[j][n] += dot(v, b);
+@@ -109,9 +126,9 @@ void iter(inout FLOAT_TYPE temp[NUM_COLS][NUM_ROWS], const uint first_row, const
+                 const FLOAT_TYPE v = dequantize1(ib, iqs, a_offset);
+                 temp[j][n] = fma(v, b.x, temp[j][n]);
+             }
+-#endif
+         }
+     }
++#endif
+ }
+ 
+ #if defined(DATA_A_F32) || defined(DATA_A_F16) || defined(DATA_A_BF16)
+diff --git a/include/llama.h b/include/llama.h
+index 177fc10a9..0c4467384 100644
+--- a/include/llama.h
++++ b/include/llama.h
+@@ -571,6 +571,13 @@ extern "C" {
+ 
+     LLAMA_API const struct llama_model * llama_get_model   (const struct llama_context * ctx);
+     LLAMA_API           llama_memory_t   llama_get_memory  (const struct llama_context * ctx);
++
++    // saker: MTP draft-head shortlist. Enable with SAKER_SHORTLIST=K (K = candidate rows).
++    // When enabled the MTP draft context scores only K candidate rows of the shared LM head;
++    // the target's verification is untouched, so only draft acceptance can change, never quality.
++    LLAMA_API int32_t llama_model_mtp_shortlist_k(const struct llama_model * model);
++    LLAMA_API void    llama_set_mtp_candidates (const struct llama_model * model, const int32_t * ids, int32_t n);
++    LLAMA_API bool    llama_model_mtp_shortlist_active(const struct llama_model * model);
+     LLAMA_API  enum llama_pooling_type   llama_pooling_type(const struct llama_context * ctx); // TODO: rename to llama_get_pooling_type
+ 
+     LLAMA_API const struct llama_vocab * llama_model_get_vocab(const struct llama_model * model);
+diff --git a/src/llama-context.cpp b/src/llama-context.cpp
+index ce38e8a31..e725fe72b 100644
+--- a/src/llama-context.cpp
++++ b/src/llama-context.cpp
+@@ -4,6 +4,7 @@
+ #include "llama-arch.h"
+ #include "llama-graph.h"
+ #include "llama-impl.h"
++#include <cstdio>
+ #include "llama-batch.h"
+ #include "llama-io.h"
+ #include "llama-memory.h"
+@@ -1322,6 +1323,46 @@ bool llama_context::set_adapter_cvec(
+     return res;
+ }
+ 
++
++// saker: SAKER_OP_TRACE per-node timing (forces sync per op; use for attribution only)
++#include <map>
++#include <algorithm>
++#include <string>
++#include <vector>
++static bool saker_op_trace_on() { static const bool v = getenv("SAKER_OP_TRACE") != nullptr; return v; }
++struct saker_op_stat { double us = 0; int64_t n = 0; };
++static std::map<std::string, saker_op_stat> saker_op_acc;
++static int64_t saker_op_graphs = 0;
++static bool saker_op_dump_on() { static const bool v = getenv("SAKER_CTX_DUMP") != nullptr; return v; }
++static int saker_nd_seen = 0;
++static bool saker_op_cb(struct ggml_tensor * t, bool ask, void *) {
++    if (ask) {
++        if (saker_op_dump_on() && saker_nd_seen < 4500) {
++            fprintf(stderr, "saker-nd: %d %s|%s\n", saker_nd_seen, ggml_op_name(t->op), t->name[0] ? t->name : "-");
++            saker_nd_seen++;
++        }
++        return true;
++    }
++    static thread_local int64_t t0 = 0;
++    int64_t now = ggml_time_us();
++    if (t0) {
++        auto & st = saker_op_acc[std::string(ggml_op_name(t->op)) + "|" + std::string(t->name[0] ? t->name : "-")];
++        st.us += (now - t0); st.n++;
++    }
++    t0 = now;
++    return true;
++}
++static void saker_op_report(int64_t graphs) {
++    fprintf(stderr, "saker-op: ==== per-op report after %lld graphs (top 25 by us) ====\n", (long long) graphs);
++    std::vector<std::pair<double, const std::string *>> v;
++    for (auto & kv : saker_op_acc) v.push_back({kv.second.us, &kv.first});
++    std::sort(v.begin(), v.end(), [](auto & a, auto & b){ return a.first > b.first; });
++    for (int i = 0; i < 25 && i < (int) v.size(); i++) {
++        for (auto & kv : saker_op_acc) if (&kv.first == v[i].second)
++            fprintf(stderr, "saker-op: %10.0f us  n=%-5lld  %s\n", kv.second.us, (long long) kv.second.n, kv.first.c_str());
++    }
++}
++
+ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, llm_graph_type gtype, llama_memory_context_i * mctx, ggml_status & ret) {
+     if (mctx && !mctx->apply()) {
+         LLAMA_LOG_ERROR("%s: failed to apply memory context\n", __func__);
+@@ -1329,6 +1370,12 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
+         return nullptr;
+     }
+ 
++    if (saker_op_trace_on() || saker_op_dump_on()) {
++        saker_nd_seen = 0;
++        ggml_backend_sched_set_eval_callback(sched.get(), saker_op_cb, nullptr);
++        if (++saker_op_graphs % 5 == 0) { saker_op_report(saker_op_graphs); saker_op_acc.clear(); }
++    }
++
+     auto * res = gf_res_prev.get();
+     auto * gf  = res->get_gf();
+ 
+@@ -1338,6 +1385,9 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
+ 
+     if (!graph_reuse_disable && res->can_reuse(gparams)) {
+         //LLAMA_LOG_DEBUG("%s: reusing previous graph\n", __func__);
++        if (getenv("SAKER_CTX_TRACE")) {
++            fprintf(stderr, "saker-ctx: ub REUSED  ct=%d ntok=%u nseq=%u nst=%u\n", (int) cparams.ctx_type, ubatch.n_tokens, ubatch.n_seqs, ubatch.n_seq_tokens);
++        }
+ 
+         // with pipeline parallelism, the previous graph_compute_async may still be running
+         // on the GPU. we must synchronize before set_inputs to avoid overwriting input tensors
+@@ -1370,6 +1420,9 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
+             ret = GGML_STATUS_ALLOC_FAILED;
+             return nullptr;
+         }
++        if (getenv("SAKER_CTX_TRACE")) {
++            fprintf(stderr, "saker-ctx: ub REBUILD ct=%d ntok=%u nseq=%u nst=%u nodes=%d\n", (int) cparams.ctx_type, ubatch.n_tokens, ubatch.n_seqs, ubatch.n_seq_tokens, ggml_graph_n_nodes(gf));
++        }
+     }
+ 
+     // set the input data for the input tensors
+@@ -1483,7 +1536,17 @@ int llama_context::encode(const llama_batch & batch_inp) {
+         GGML_ASSERT(backend_res != nullptr);
+         GGML_ASSERT(logits.data != nullptr);
+ 
+-        ggml_backend_tensor_get_async(backend_res, t_logits, logits.data, 0, n_tokens*n_vocab*sizeof(float));
++        {
++            // saker: t_logits may be narrower than n_vocab (MTP draft shortlist)
++            const int64_t saker_cols = t_logits->ne[0];
++            if (saker_cols == (int64_t) n_vocab) {
++                ggml_backend_tensor_get_async(backend_res, t_logits, logits.data, 0, n_tokens*n_vocab*sizeof(float));
++            } else {
++                for (int64_t r = 0; r < n_tokens; ++r) {
++                    ggml_backend_tensor_get_async(backend_res, t_logits, logits.data + r*n_vocab, r*saker_cols*sizeof(float), saker_cols*sizeof(float));
++                }
++            }
++        }
+     }
+ 
+     // extract embeddings
+@@ -1792,8 +1855,14 @@ int llama_context::decode(const llama_batch & batch_inp) {
+     int64_t n_outputs_prev = 0;
+     int64_t n_tokens_prev  = 0;
+ 
++    int saker_nub = 0;
+     do {
+         const auto & ubatch = mctx->get_ubatch();
++        if (getenv("SAKER_CTX_TRACE")) {
++            saker_nub++;
++            fprintf(stderr, "saker-ctx: decode ubatch#%d ct=%d nt=%u nseq=%u nst=%u allout=%lld/%lld\n",
++                    saker_nub, (int) cparams.ctx_type, ubatch.n_tokens, ubatch.n_seqs, ubatch.n_seq_tokens, (long long) n_outputs_all, (long long) n_tokens_all);
++        }
+ 
+         // count the outputs in this ubatch
+         {
+@@ -1870,7 +1939,59 @@ int llama_context::decode(const llama_batch & batch_inp) {
+             if (n_outputs) {
+                 GGML_ASSERT( n_outputs_prev + n_outputs <= n_outputs_all);
+                 GGML_ASSERT((n_outputs_prev + n_outputs)*n_vocab <= (int64_t) logits.size);
+-                ggml_backend_tensor_get_async(backend_res, t_logits, logits_out, 0, n_outputs*n_vocab*sizeof(float));
++                // saker: t_logits may be narrower than n_vocab (MTP draft shortlist)
++                const int64_t saker_cols = t_logits->ne[0];
++                if (saker_cols == (int64_t) n_vocab) {
++                    ggml_backend_tensor_get_async(backend_res, t_logits, logits_out, 0, n_outputs*n_vocab*sizeof(float));
++                } else {
++                    // saker: the K narrow columns are the scores of the candidate tokens held
++                    // in model.mtp_shortlist->ids, in that same order. Rebuild each output row
++                    // as a faithful RESTRICTED distribution: the candidate's score at its TRUE
++                    // token position, -inf everywhere else. Without this the sampler's argmax
++                    // treats the column index as a token id and stale buffer contents win the
++                    // argmax, which collapsed draft acceptance to 0.084.
++                    const int64_t saker_k = saker_cols;
++                    std::vector<int32_t> saker_cand(saker_k, 0);
++                    bool saker_have_cand = false;
++                    if (model.mtp_shortlist && model.mtp_shortlist->ids) {
++                        ggml_backend_tensor_get(model.mtp_shortlist->ids, saker_cand.data(), 0, (size_t) saker_k * sizeof(int32_t));
++                        saker_have_cand = true;
++                    }
++                    ggml_backend_synchronize(backend_res);
++                    std::vector<float> saker_row(saker_k, 0.0f);
++                    for (int64_t r = 0; r < n_outputs; ++r) {
++                        ggml_backend_tensor_get(t_logits, saker_row.data(), (size_t) r * t_logits->nb[1], (size_t) saker_k * sizeof(float));
++                        if (getenv("SAKER_SL_DEBUG") && r == 0) {
++                            // top-3 of the narrow row BEFORE scatter: are these real logits?
++                            float s1v = -1e30f, s2v = -1e30f, s3v = -1e30f; int64_t s1j=-1, s2j=-1, s3j=-1;
++                            for (int64_t j = 0; j < saker_k; ++j) {
++                                const float v = saker_row[j];
++                                if (v > s1v) { s3v=s2v; s3j=s2j; s2v=s1v; s2j=s1j; s1v=v; s1j=j; }
++                                else if (v > s2v) { s3v=s2v; s3j=s2j; s2v=v; s2j=j; }
++                                else if (v > s3v) { s3v=v; s3j=j; }
++                            }
++                            fprintf(stderr, "saker-rb: ne0=%lld k=%lld have_cand=%d top3=(%g@j%lld %g@j%lld %g@j%lld) cand0=%d cand1=%d\n",
++                                    (long long)t_logits->ne[0], (long long)saker_k, (int)saker_have_cand,
++                                    s1v, (long long)s1j, s2v, (long long)s2j, s3v, (long long)s3j,
++                                    saker_have_cand ? saker_cand[0] : -1,
++                                    saker_have_cand && saker_k > 1 ? saker_cand[1] : -1);
++                        }
++                        float * saker_out = logits_out + (size_t) r * n_vocab;
++                        std::fill(saker_out, saker_out + n_vocab, (float) -INFINITY);
++                        if (saker_have_cand) {
++                            for (int64_t j = 0; j < saker_k; ++j) {
++                                const int32_t saker_tok = saker_cand[j];
++                                if (saker_tok >= 0 && saker_tok < (int32_t) n_vocab) {
++                                    saker_out[saker_tok] = saker_row[j];
++                                }
++                            }
++                        } else {
++                            for (int64_t j = 0; j < saker_k && j < (int64_t) n_vocab; ++j) {
++                                saker_out[j] = saker_row[j];
++                            }
++                        }
++                    }
++                }
+             }
+         }
+ 
+diff --git a/src/llama-model.cpp b/src/llama-model.cpp
+index 3ef683d5b..73c611d9b 100644
+--- a/src/llama-model.cpp
++++ b/src/llama-model.cpp
+@@ -1069,6 +1069,77 @@ llama_model::~llama_model() {
+     }
+ }
+ 
++// ----------------------------------------------------------------------------
++// saker: MTP draft-head shortlist
++// ----------------------------------------------------------------------------
++
++static int32_t saker_shortlist_env_k() {
++    const char * e = getenv("SAKER_SHORTLIST");
++    return (e != nullptr && atoi(e) > 0) ? atoi(e) : 0;
++}
++
++llama_model::saker_mtp_shortlist::~saker_mtp_shortlist() {
++    if (buf) {
++        ggml_backend_buffer_free(buf);
++    }
++    if (ctx) {
++        ggml_free(ctx);
++    }
++}
++
++ggml_tensor * llama_model::saker_mtp_shortlist_get() const {
++    const int32_t k = saker_shortlist_env_k();
++    if (k == 0 || output == nullptr) {
++        return nullptr;
++    }
++    if (!mtp_shortlist) {
++        mtp_shortlist = std::make_unique<saker_mtp_shortlist>();
++        mtp_shortlist->k = k;
++
++        struct ggml_init_params ip = {
++            /*.mem_size   =*/ 64*1024,
++            /*.mem_buffer =*/ nullptr,
++            /*.no_alloc   =*/ true,
++        };
++        mtp_shortlist->ctx = ggml_init(ip);
++        const int64_t saker_ne[1] = { mtp_shortlist->k };
++        mtp_shortlist->ids = ggml_new_tensor(mtp_shortlist->ctx, GGML_TYPE_I32, 1, saker_ne);
++
++        mtp_shortlist->buf = ggml_backend_alloc_ctx_tensors_from_buft(mtp_shortlist->ctx, ggml_backend_cpu_buffer_type());
++        GGML_ASSERT(mtp_shortlist->buf != nullptr);
++
++        std::vector<int8_t> zero(ggml_nbytes(mtp_shortlist->ids), 0);
++        ggml_backend_tensor_set(mtp_shortlist->ids, zero.data(), 0, zero.size());
++
++        LLAMA_LOG_INFO("%s: saker MTP shortlist enabled, K = %d\n", __func__, (int) mtp_shortlist->k);
++    }
++    return mtp_shortlist->ids;
++}
++
++int32_t llama_model_mtp_shortlist_k(const struct llama_model * model) {
++    return model != nullptr ? saker_shortlist_env_k() : 0;
++}
++
++bool llama_model_mtp_shortlist_active(const struct llama_model * model) {
++    return model != nullptr && model->mtp_shortlist != nullptr;
++}
++
++void llama_set_mtp_candidates(const struct llama_model * model, const int32_t * ids, int32_t n) {
++    if (model == nullptr) {
++        return;
++    }
++    llama_model * m = const_cast<llama_model *>(model);
++    if (m->saker_mtp_shortlist_get() == nullptr) {
++        return;
++    }
++    const int32_t k = m->mtp_shortlist->k;
++    std::vector<int32_t> host(k, 0);
++    for (int32_t i = 0; i < (n < k ? n : k); ++i) {
++        host[i] = ids != nullptr ? ids[i] : 0;
++    }
++    ggml_backend_tensor_set(m->mtp_shortlist->ids, host.data(), 0, (size_t) k * sizeof(int32_t));
++}
++
+ void llama_model_base::load_stats(llama_model_loader & ml) {
+     pimpl->n_elements = ml.n_elements;
+     pimpl->n_bytes = ml.n_bytes;
+diff --git a/src/llama-model.h b/src/llama-model.h
+index 510ed8498..a6d70bc38 100644
+--- a/src/llama-model.h
++++ b/src/llama-model.h
+@@ -660,6 +660,22 @@ struct llama_model {
+     // for keeping track of associated LoRA adapters
+     std::unordered_set<llama_adapter_lora *> loras;
+ 
++    // saker: shortlist candidate ids for the MTP draft head (SAKER_SHORTLIST=K).
++    // ids is an i32 [k] tensor in a host-visible CPU buffer; the scheduler inserts a
++    // tiny H2D copy per draft, the same pattern as token ids into the VK get_rows
++    // for tok_embd. Lazily created on first MTP graph build.
++    struct saker_mtp_shortlist {
++        struct ggml_context *        ctx = nullptr; // meta ctx, no_alloc
++        struct ggml_tensor *         ids = nullptr; // i32 [k]
++        struct ggml_backend_buffer * buf = nullptr; // owns ids storage
++        int32_t                      k   = 0;
++        ~saker_mtp_shortlist();
++    };
++    mutable std::unique_ptr<struct saker_mtp_shortlist> mtp_shortlist;
++
++    // returns the candidate-ids tensor, creating it if SAKER_SHORTLIST is set; nullptr when off
++    ggml_tensor * saker_mtp_shortlist_get() const;
++
+     // statically allocated context for assigning
+     struct llama_meta_device_get_split_state_userdata get_split_state_ud;
+ 
+diff --git a/src/models/qwen35.cpp b/src/models/qwen35.cpp
+index 309dd4324..90dee4bd7 100644
+--- a/src/models/qwen35.cpp
++++ b/src/models/qwen35.cpp
+@@ -637,7 +637,36 @@ llama_model_qwen35::graph_mtp::graph_mtp(const llama_model & model, const llm_gr
+     ggml_tensor * head_w = layer.nextn.shared_head_head ? layer.nextn.shared_head_head : model.output;
+     ggml_tensor * head_s = layer.nextn.shared_head_head ? layer.nextn.shared_head_head_s : model.output_s;
+     GGML_ASSERT(head_w && "QWEN35 MTP: missing LM head (nextn.shared_head_head or model.output)");
+-    cur = build_lora_mm(head_w, cur, head_s);
++    if (ggml_tensor * saker_ids = model.saker_mtp_shortlist_get()) {
++        // saker shortlist: score only the K candidate rows of the (shared) LM head.
++        // The target verification is untouched; only the draft proposal set narrows.
++        ggml_set_input(saker_ids); // registered input -> the scheduler inserts the CPU->VK copy
++        if (cur->ne[1] == 1) {
++            // saker fused path: mul_mat_id walks the quantized head rows directly.
++            // The previous path (ggml_get_rows -> [n_embd x K] F32 intermediate -> mul_mat)
++            // moved ~146 MB per draft at K=3584 while the gathered weights themselves are
++            // only ~9.7 MB: the intermediate, not the weight read, dominated the draft lane.
++            // Mapping: head_w [n_embd, n_vocab] viewed as one 1-column "expert matrix" per
++            // vocab row => as [n_embd, 1, n_vocab]; ids [K,1]; b [n_embd,1,1]. With ne11 == 1
++            // the shader broad b_offset (expert_i0 % ne11)*stride_b is 0 for every candidate,
++            // so all K workgroups dot the same hidden vector (this is the designed
++            // broadcast case; the builder asserts ids->ne[0] % b->ne[1] == 0 for it).
++            // dst = [1, K, 1] -> reshape to [K, 1] for the narrow-logits readback.
++            const int64_t saker_k = ggml_nelements(saker_ids);
++            ggml_tensor * saker_head3 = ggml_reshape_3d(ctx0, head_w, head_w->ne[0], 1, head_w->ne[1]);
++            ggml_tensor * saker_ids2  = ggml_reshape_2d(ctx0, saker_ids, saker_k, 1);
++            ggml_tensor * saker_cur3  = ggml_reshape_3d(ctx0, cur,     cur->ne[0], 1, 1);
++            cur = ggml_mul_mat_id(ctx0, saker_head3, saker_cur3, saker_ids2);
++            cur = ggml_reshape_2d(ctx0, cur, saker_k, 1);
++        } else {
++            // multi-output batches (draft-context catch-up) keep the gather path:
++            // mul_mat_id requires ids->ne[1] == b->ne[2], i.e. one candidate list per output.
++            ggml_tensor * saker_rows = ggml_get_rows(ctx0, head_w, saker_ids);
++            cur = build_lora_mm(saker_rows, cur, nullptr);
++        }
++    } else {
++        cur = build_lora_mm(head_w, cur, head_s);
++    }
+     cb(cur, "result_output", -1);
+ 
+     res->t_logits = cur;
+diff --git a/tools/llama-bench/llama-bench.cpp b/tools/llama-bench/llama-bench.cpp
+index 7c495afe2..f072c8c1d 100644
+--- a/tools/llama-bench/llama-bench.cpp
++++ b/tools/llama-bench/llama-bench.cpp
+@@ -2128,7 +2128,13 @@ static bool test_prompt(llama_context * ctx, int n_prompt, int n_batch, int n_th
+         for (int i = 1; i < n_tokens; i++) {
+             tokens[i] = std::rand() % n_vocab;
+         }
+-        int res = llama_decode(ctx, llama_batch_get_one(tokens.data(), n_tokens));
++        llama_batch saker_b = llama_batch_get_one(tokens.data(), n_tokens);
++        std::vector<int8_t> saker_lg;
++        if (getenv("SAKER_ALLLOGITS") != nullptr) {
++            saker_lg.assign(n_tokens, 1);
++            saker_b.logits = saker_lg.data();
++        }
++        int res = llama_decode(ctx, saker_b);
+         if (res != 0) {
+             fprintf(stderr, "%s: failed to decode prompt batch, res = %d\n", __func__, res);
+             return false;
+diff --git a/tools/server/server-context.cpp b/tools/server/server-context.cpp
+index a7d382886..23729a1c1 100644
+--- a/tools/server/server-context.cpp
++++ b/tools/server/server-context.cpp
+@@ -26,6 +26,21 @@
+ #include <utility>
+ #include <fstream>
+ 
++// --- saker: round decomposition instrumentation (env-gated, inert by default) ---
++#include <cstdlib>
++// saker: draft-context drain counters (defined in common/speculative.cpp)
++double saker_dft_drain_get_us();
++int    saker_dft_drain_get_n();
++
++static bool saker_round_trace_on() { static const bool v = getenv("SAKER_ROUND_TRACE") != nullptr; return v; }
++static int64_t saker_tgt_us = 0, saker_proc_us = 0, saker_smpl_us = 0, saker_pref_us = 0;
++static int64_t saker_tdec_us = 0, saker_tsync_us = 0;
++static int saker_n_round = 0;
++struct saker_acc {
++    int64_t t0; bool on; int64_t & acc;
++    ~saker_acc() { if (on) acc += ggml_time_us() - t0; }
++};
++
+ // fix problem with std::min and std::max
+ #if defined(_WIN32)
+ #define WIN32_LEAN_AND_MEAN
+@@ -3580,12 +3595,21 @@ private:
+ 
+         // decode on the worker thread, so we can still handle metrics tasks while waiting
+         // note: the sync is done here too, so that the wait also happens off the main thread
++        const bool saker_is_pref = batch_view.n_tokens > 8;
++        saker_acc saker_a_tgt{ggml_time_us(), saker_round_trace_on(), (saker_is_pref ? saker_pref_us : saker_tgt_us)};
+         int ret = 0;
+         queue_tasks.yield_to_queue([&]() {
++            const int64_t saker_t0 = ggml_time_us();
+             ret = llama_decode(ctx_tgt, batch_view);
++            const int64_t saker_t1 = ggml_time_us();
+             if (ret == 0 && has_output) {
+                 llama_synchronize(ctx_tgt);
+             }
++            const int64_t saker_t2 = ggml_time_us();
++            if (saker_round_trace_on() && !saker_is_pref) {
++                saker_tdec_us  += saker_t1 - saker_t0;
++                saker_tsync_us += saker_t2 - saker_t1;
++            }
+         });
+ 
+         if (ret != 0) {
+@@ -3644,7 +3668,18 @@ private:
+         // TODO: avoid restoring the draft context and re-evaluating the drafted tokens when not needed [TAG_SPEC_AVOID_DRAFT_REEVAL]
+         //       for now, always re-evaluate for simplicity
+         //       ref: https://github.com/ggml-org/llama.cpp/pull/22728#issuecomment-4400925384
+-        if (!common_speculative_process(spec.get(), batch_view)) {
++        bool saker_proc_ok = false;
++        {
++            saker_acc saker_a_proc{ggml_time_us(), saker_round_trace_on(), (saker_is_pref ? saker_pref_us : saker_proc_us)};
++            saker_proc_ok = common_speculative_process(spec.get(), batch_view);
++        }
++        if (saker_round_trace_on() && !saker_is_pref) {
++            ++saker_n_round;
++            fprintf(stderr, "saker-round %d: tgt=%.2f proc=%.2f smpl=%.2f dec=%.2f sync=%.2f dft=%.2f(n=%d)\n",
++                    saker_n_round, saker_tgt_us/1000.0, saker_proc_us/1000.0, saker_smpl_us/1000.0,
++                    saker_tdec_us/1000.0, saker_tsync_us/1000.0, saker_dft_drain_get_us()/1000.0, saker_dft_drain_get_n());
++        }
++        if (!saker_proc_ok) {
+             SRV_ERR("%s", "failed to process speculative batch\n");
+ 
+             // TODO: handle error
+@@ -3805,6 +3840,7 @@ private:
+             // verify and try to accept the draft
+             {
+                 common_sampler_ptr smpl_save(common_sampler_clone(slot.smpl.get()));
++                saker_acc saker_a_smpl{ggml_time_us(), saker_round_trace_on(), saker_smpl_us};
+ 
+                 GGML_ASSERT(slot.spec_i_batch.size() == n_draft + 1);
+                 auto accepted = common_sampler_sample_and_accept_n(slot.smpl.get(), slot.ctx_tgt, slot.spec_i_batch, slot.spec_draft);
