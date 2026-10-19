@@ -469,8 +469,38 @@ class ProxyTests(unittest.TestCase):
             with running(make_server(("127.0.0.1", 0), Config(upstream=upstream_url))) as url:
                 status, raw, _ = chat(url)
         self.assertEqual(status, 502)
-        self.assertEqual(json.loads(raw)["error"]["code"], "empty_answer_length")
+        self.assertEqual(json.loads(raw)["error"]["code"], "empty_answer")
         self.assertNotIn(b"Consideration", raw)
+
+    def test_reasoning_only_turn_is_flagged_incomplete_not_returned_as_a_clean_200(self):
+        # Live: the model ended a turn with 0 content chars and 7116 chars of reasoning and it came
+        # back as a plain 200. With thinking hidden there is nothing to return, so that case errors;
+        # with thinking shown the reasoning is worth keeping, so it is kept AND flagged.
+        filler = " ".join(
+            "Consideration number %d reaches a different conclusion about the matter at hand." % i
+            for i in range(1, 12))
+        upstream, _ = fake_upstream([{"deltas": [{"reasoning_content": filler}], "finish": "stop"}])
+        with running(upstream) as upstream_url:
+            with running(make_server(("127.0.0.1", 0),
+                                     Config(upstream=upstream_url, hide_thinking=False))) as url:
+                status, raw, _ = chat(url)
+        self.assertEqual(status, 200, raw)
+        body = json.loads(raw)
+        self.assertEqual(body["saker_guard"]["incomplete"], "empty_answer")
+        self.assertEqual(body["choices"][0]["message"]["content"], None)
+        self.assertIn("Consideration", body["choices"][0]["message"]["reasoning_content"])
+
+    def test_reasoning_only_turn_with_hidden_thinking_is_an_error(self):
+        filler = " ".join(
+            "Consideration number %d reaches a different conclusion about the matter at hand." % i
+            for i in range(1, 12))
+        upstream, _ = fake_upstream([{"deltas": [{"reasoning_content": filler}], "finish": "stop"}])
+        with running(upstream) as upstream_url:
+            with running(make_server(("127.0.0.1", 0),
+                                     Config(upstream=upstream_url, hide_thinking=True))) as url:
+                status, raw, _ = chat(url)
+        self.assertEqual(status, 502)
+        self.assertEqual(json.loads(raw)["error"]["code"], "empty_answer")
 
     def test_empty_content_with_a_tool_call_is_not_an_error(self):
         upstream, _ = fake_upstream([{"deltas": [

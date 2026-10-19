@@ -401,6 +401,12 @@ CHANNELS = ("reasoning_content", "content")
 # degenerate runs are hundreds or thousands.
 WORDLESS_MIN_CHARS = 512
 
+# Vomiting is a short unit repeated over and over, and it is usually followed by some OTHER junk
+# (live: "teras" repeated, then a run of "/"). So the scan looks for a repetition ANYWHERE in the
+# recent window, not only one that happens to end the text. Bounded so the per-delta cost stays small.
+VOMIT_WINDOW = 1024
+VOMIT_MAX_PERIOD = 32
+
 
 def reconcile(result, before):
     """Collapse an echoed assistant message.
@@ -516,14 +522,24 @@ def guarded_completion(config, original, authorization, cancelled):
                 raise GuardError("incomplete_stream", "Upstream closed without a finish reason.")
             if config.hide_thinking and re.search(r"(?is)^\s*<think>|<think>.*?</think>", result.content):
                 raise GuardError("unparsed_reasoning", "Upstream did not separate thinking from answer text; nothing was returned.")
-            if (result.finish_reason == "length" and not result.content.strip()
-                    and not result.tool_calls):
-                # Measured: the model can spend an entire max_tokens thinking, and with
-                # thinking hidden that reaches the caller as an empty success.
-                raise GuardError("empty_answer_length", (
-                    "The model used its whole token budget without producing an answer "
-                    "(it was most likely still reasoning, which this guard hides). "
-                    "Raise max_tokens, set a reasoning budget, or send reasoning_effort='none'."))
+            if not result.content.strip() and not result.tool_calls:
+                # An empty answer is never a finished answer. Two measured causes:
+                #   length - the model spent its whole budget thinking
+                #   stop   - the model ended the turn having produced only reasoning (observed live:
+                #            0 content chars with 7116 chars of reasoning, returned as a clean 200)
+                # tool_calls are exempt: a tool-only response legitimately has no content.
+                if config.hide_thinking or not result.reasoning_content.strip():
+                    # Nothing useful would reach the caller at all.
+                    raise GuardError("empty_answer", (
+                        "The model produced no answer text (finish_reason=%s) - it emitted reasoning "
+                        "only. Raise max_tokens, set a reasoning budget, or send "
+                        "reasoning_effort='none'." % result.finish_reason))
+                # Thinking is shown, so the caller does get the reasoning. Keep it and say plainly
+                # that the answer itself is missing, rather than discarding what is there.
+                result.incomplete = "empty_answer"
+                result.finish_reason = result.finish_reason or "stop"
+                LOG.warning("no answer text (finish_reason=%s); flagged incomplete, reasoning kept",
+                            result.finish_reason)
             if result.recoveries and result.finish_reason == "stop":
                 # Live probe B2: after a compaction the model can emit a couple more copies and stop
                 # by itself. That is too short to cut on, but it is not a finished answer either.
@@ -722,6 +738,38 @@ def detect_loop(text: str, window: int = 4096, min_repeats: int = 4, min_chars: 
             while start >= period and text[start - period:start] == unit:
                 start -= period
             return Loop("exact", start, period)
+    # Second pass: a repetition that does NOT reach the end of the text. Live report: a thinking block
+    # of "teras" repeated followed by a run of "/". The run ended well before the tail, so the
+    # anchored check above never saw it - however long the run was. That is the ordinary shape of
+    # vomiting, so scan for the longest run of a short-period unit anywhere in the recent window.
+    probe = tail[-VOMIT_WINDOW:]
+    for period in range(1, min(VOMIT_MAX_PERIOD, len(probe) // min_repeats) + 1):
+        repeats = max(min_repeats, (min_chars + period - 1) // period)
+        best_blocks, best_start, run_start, run = 0, 0, 0, 1
+        for offset in range(period):
+            # Walk NON-OVERLAPPING blocks for this alignment. Comparing overlapping windows would
+            # count positions rather than blocks and make an 80-dash separator look like a loop.
+            run_start, run = offset, 1
+            i = offset
+            while i + 2 * period <= len(probe):
+                if probe[i:i + period] == probe[i + period:i + 2 * period]:
+                    if run == 1:
+                        run_start = i
+                    run += 1
+                else:
+                    run = 1
+                if run > best_blocks:
+                    best_blocks, best_start = run, run_start
+                i += period
+        if best_blocks < repeats:
+            continue
+        unit = probe[best_start:best_start + period]
+        if not re.search(r"\w", unit):
+            if not unit.strip():
+                continue  # pure whitespace: carries no content, never cut
+            if period * best_blocks < WORDLESS_MIN_CHARS:
+                continue  # short punctuation run = formatting, not vomiting
+        return Loop("exact", len(text) - len(probe) + best_start, period)
     # Six almost-identical sentences are a conservative approximation of rambling,
     # not a semantic proof. Do not merge numbered/numeric progress into a summary.
     parts = list(re.finditer(r"[^.!?\n]+[.!?\n]+", tail))[-6:]
