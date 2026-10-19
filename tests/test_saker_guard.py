@@ -39,6 +39,20 @@ def fake_upstream(scenarios):
             self.send_header("Content-Type", "text/event-stream")
             self.end_headers()
             try:
+                if scenario.get("echo"):
+                    # Measured llama.cpp behaviour: continue_final_message returns the
+                    # whole assistant message, not only the newly generated tokens.
+                    channel = body.get("continue_final_message", "content")
+                    for message in reversed(body.get("messages", [])):
+                        if message.get("role") == "assistant":
+                            if isinstance(channel, str) and message.get(channel):
+                                frame = {"id": "chatcmpl-test", "created": 123, "model": "swift",
+                                         "choices": [{"index": 0,
+                                                      "delta": {channel: message[channel]},
+                                                      "finish_reason": None}]}
+                                self.wfile.write(b"data: " + json.dumps(frame).encode() + b"\n\n")
+                                self.wfile.flush()
+                            break
                 for delta in scenario["deltas"]:
                     frame = {"id": "chatcmpl-test", "created": 123, "model": "swift",
                              "choices": [{"index": 0, "delta": delta, "finish_reason": None}]}
@@ -260,6 +274,46 @@ class ProxyTests(unittest.TestCase):
                 self.assertEqual(tools[0]["function"], {"name": "lookup", "arguments": '{"q":"test"}'})
                 self.assertEqual(b"Private reasoning" in raw, not hide)
                 self.assertEqual(frames[-1]["usage"]["completion_tokens"], 20)
+
+    def test_echoed_continuation_does_not_duplicate_the_preserved_prefix(self):
+        prefix = "We have established that the answer is 281.\n"
+        unit = "Let me consider the next step again. "
+        upstream, _ = fake_upstream([
+            {"deltas": [{"content": prefix}, {"content": unit * 12}]},
+            {"echo": True, "deltas": [{"content": "Here is the proof."}]},
+        ])
+        with running(upstream) as upstream_url:
+            with running(make_server(("127.0.0.1", 0), Config(upstream=upstream_url))) as url:
+                status, raw, _ = chat(url)
+        self.assertEqual(status, 200, raw)
+        content = json.loads(raw)["choices"][0]["message"]["content"]
+        self.assertEqual(content, prefix + unit + "Here is the proof.")
+        self.assertEqual(content.count(prefix), 1)
+        self.assertEqual(content.count(unit), 1)
+
+    def test_budget_exhausted_empty_answer_is_reported_not_silently_returned(self):
+        # Deliberately varied: an exactly repeating filler would trip the loop detector first.
+        filler = " ".join(
+            "Consideration number %d reaches a different conclusion about the matter at hand." % i
+            for i in range(1, 12))
+        upstream, _ = fake_upstream([{"deltas": [{"reasoning_content": filler}], "finish": "length"}])
+        with running(upstream) as upstream_url:
+            with running(make_server(("127.0.0.1", 0), Config(upstream=upstream_url))) as url:
+                status, raw, _ = chat(url)
+        self.assertEqual(status, 502)
+        self.assertEqual(json.loads(raw)["error"]["code"], "empty_answer_length")
+        self.assertNotIn(b"Consideration", raw)
+
+    def test_empty_content_with_a_tool_call_is_not_an_error(self):
+        upstream, _ = fake_upstream([{"deltas": [
+            {"tool_calls": [{"index": 0, "id": "c1", "type": "function",
+                              "function": {"name": "f", "arguments": "{}"}}]},
+        ], "finish": "tool_calls"}])
+        with running(upstream) as upstream_url:
+            with running(make_server(("127.0.0.1", 0), Config(upstream=upstream_url))) as url:
+                status, raw, _ = chat(url)
+        self.assertEqual(status, 200, raw)
+        self.assertEqual(json.loads(raw)["choices"][0]["message"]["tool_calls"][0]["function"]["name"], "f")
 
     def test_hide_thinking_preserves_answer_and_does_not_disable_reasoning(self):
         upstream, requests = fake_upstream([{"deltas": [

@@ -265,6 +265,33 @@ def safe_to_compact(original, result):
     return not (constrained or structured_text or result.tool_calls)
 
 
+CHANNELS = ("reasoning_content", "content")
+
+
+def reconcile(result, before):
+    """Collapse an echoed assistant message.
+
+    Measured on llama.cpp (b11731): with `continue_final_message`, the server returns
+    the WHOLE assistant message -- our preserved prefix plus the new tokens -- not only
+    the new tokens. Other builds stream just the delta. Both are handled here: if the
+    text appended by this attempt repeats the value we already had, drop the copy.
+    Returns True when it changed something.
+    """
+    changed = False
+    for channel in CHANNELS:
+        previous = before.get(channel, "")
+        if not previous:
+            continue
+        current = getattr(result, channel)
+        if len(current) <= len(previous):
+            continue
+        appended = current[len(previous):]
+        if appended.startswith(previous):
+            setattr(result, channel, previous + appended[len(previous):])
+            changed = True
+    return changed
+
+
 def continuation_request(original, result, channel):
     body = prepare_request(original)
     body["messages"].append({"role": "user", "content": (
@@ -310,10 +337,26 @@ def guarded_completion(config, original, authorization, cancelled):
     deadline = time.monotonic() + config.timeout
     result = Completion()
     while True:
+        before = {channel: getattr(result, channel) for channel in CHANNELS}
         detected = read_attempt(config, body, result, authorization, deadline, cancelled)
+        echoed = reconcile(result, before)
+        if detected and echoed:
+            # The "loop" may have been our own echoed prefix arriving twice; re-derive
+            # detection against the reconciled text before acting on it.
+            channel = detected[0]
+            rederived = detect_loop(getattr(result, channel), config.tail_chars)
+            detected = (channel, rederived) if rederived else None
         if not detected:
             if config.hide_thinking and re.search(r"(?is)^\s*<think>|<think>.*?</think>", result.content):
                 raise GuardError("unparsed_reasoning", "Upstream did not separate thinking from answer text; nothing was returned.")
+            if (result.finish_reason == "length" and not result.content.strip()
+                    and not result.tool_calls):
+                # Measured: the model can spend an entire max_tokens thinking, and with
+                # thinking hidden that reaches the caller as an empty success.
+                raise GuardError("empty_answer_length", (
+                    "The model used its whole token budget without producing an answer "
+                    "(it was most likely still reasoning, which this guard hides). "
+                    "Raise max_tokens, set a reasoning budget, or send reasoning_effort='none'."))
             return result
         channel, loop = detected
         if not safe_to_compact(original, result):
