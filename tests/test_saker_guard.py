@@ -1,3 +1,20 @@
+"""Tests for the Saker guard.
+
+These run against a fake upstream, so they prove the guard's own logic: detection, the recovery
+ladder, the request shapes it emits, and the ways it refuses to leak or silently degrade.
+
+They do NOT prove the interaction with a real engine. Two behaviours were only discovered by running
+against llama.cpp and are modelled here deliberately, so the tests stay honest:
+
+  * the engine echoes the WHOLE assistant message on `continue_final_message`, not just the new
+    tokens (measured: sent 21 chars, got 57 back, `completion_tokens=14`) - so `fake_upstream`
+    always echoes, and the guard must collapse it
+  * the model can spend its entire token budget thinking, returning empty content with
+    `finish_reason=length`
+
+A test that passes here but has never been run against the engine proves less than it looks like.
+"""
+
 import contextlib
 import json
 import select
@@ -25,6 +42,12 @@ def running(server):
 
 
 def fake_upstream(scenarios):
+    """Minimal SSE llama-server stand-in. `scenarios[i]` is served on request i.
+
+    Per scenario: `deltas` are the chunks to stream, `finish` the terminal reason (default "stop"),
+    `omit_done` to truncate without `[DONE]`, `started`/`cancelled` events to observe cancellation.
+    Echoing on `continue_final_message` is unconditional because the real engine always does it.
+    """
     requests = []
 
     class FakeHandler(BaseHTTPRequestHandler):
@@ -92,6 +115,9 @@ def chat(url, **overrides):
 
 
 class ConfigurationTests(unittest.TestCase):
+    """CLI parsing and validated settings, including that the show/hide switch is independent of
+    whether reasoning actually runs."""
+
     def test_show_hide_switch_is_independent_of_reasoning(self):
         _, hidden = parse_cli(["--hide-thinking"])
         _, shown = parse_cli(["--show-thinking"])
@@ -102,6 +128,8 @@ class ConfigurationTests(unittest.TestCase):
 
 
 class DetectionTests(unittest.TestCase):
+    """The detector on its own: what counts as a loop, and what must never count as one."""
+
     def test_exact_loop_compacts_without_losing_clean_prefix(self):
         prefix = "The result is 281. Next I will explain why.\n"
         unit = "Hmm. Let me consider that again. "
@@ -121,6 +149,9 @@ class DetectionTests(unittest.TestCase):
 
 
 class ProxyTests(unittest.TestCase):
+    """End-to-end behaviour through the real HTTP handler: recovery, refusal, cancellation, and the
+    no-leak guarantees."""
+
     def test_shorter_repeat_run_is_caught_once_a_recovery_has_already_happened(self):
         # Probe B2 live: after one compaction the model emitted only 3 copies and stopped, so the
         # 4-repeat threshold never fired and the caller got a useless 200. After a recovery the

@@ -48,7 +48,7 @@ independent of the performance work below.
 
 ```bash
 python3 guard/saker_guard.py --port 18160 --upstream http://127.0.0.1:8081 --hide-thinking
-python3 -m unittest discover -s tests -v   # 14 tests
+python3 -m unittest discover -s tests -v   # 19 tests
 ```
 
 ## Usage
@@ -68,6 +68,30 @@ SAKER_SHORTLIST=3584 build/bin/llama-server \
 
 The APU retune applies automatically for `vendor == AMD && device->uma`; disable with
 `SAKER_APU_MMQ=0`. Omit `SAKER_SHORTLIST` to disable the shortlist.
+
+### Regenerating the patches
+
+The published patch is **not** a plain `git diff` of the branch. `saker-combined` also carries two
+accidental patch-tool backups (`common/speculative.cpp.orig-saker` and
+`ggml/src/ggml-vulkan/ggml-vulkan.cpp.orig-saker`, 22,446 lines together, committed by `4664a18b1`
+whose message admits they were "the uncommitted remainder"). They are excluded, which is why the
+patch is 549 lines while the raw branch diff is 23,007.
+
+Reproduce the published bytes exactly with this pathspec:
+
+```bash
+cd /home/hycris/llama.cpp-qwen38-merge
+git diff 9d57ce456..HEAD -- \
+  common/speculative.cpp ggml/src/ggml-vulkan/ggml-vulkan.cpp include/llama.h \
+  src/llama-context.cpp src/llama-model.cpp src/llama-model.h src/models/qwen35.cpp \
+  tools/llama-bench/llama-bench.cpp tools/server/server-context.cpp \
+  > patches/saker-combined.patch
+```
+
+Verified: this reproduces the published file byte-for-byte
+(`md5 ee80fc042fe958a15d61d16e5f48f942`), both before and after deleting the two backups — which
+confirms the backups were never part of the change. The shipped branch stays at `f65d47b8a`; the
+cleanup lives on `saker-combined-doc`.
 
 ## Verification
 

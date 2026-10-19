@@ -1,5 +1,42 @@
 #!/usr/bin/env python3
-"""Buffered OpenAI chat guard for Saker/llama.cpp. Python standard library only."""
+"""Saker guard: a buffered loop guard and thinking-visibility switch for llama.cpp.
+
+Sits in front of `llama-server` and speaks the OpenAI chat-completions API. Standard library only.
+
+Why buffered
+------------
+Generation is read from upstream to completion *before* anything is sent to the caller. A loop can
+therefore be cut and rewritten without the caller ever seeing the repetition. The cost is that live
+token-by-token streaming is not available: the caller gets one valid stream once the answer is
+decided. The previous approach (splicing a retry into an in-flight stream) cannot unsend text that
+already went out, which is why it is not used here.
+
+Request flow
+------------
+    client -> guard -> llama-server (streaming SSE)
+                     <- accumulate content/reasoning/tool_calls, watching for repetition
+    client <- one buffered SSE stream (or one JSON body), rewritten if a loop was found
+
+Each upstream attempt is read by `read_attempt`, which returns as soon as a loop is detected
+(closing the socket, which cancels the task on a single-slot engine) or when the stream ends.
+`guarded_completion` drives the recovery ladder and decides what the caller finally sees.
+
+Recovery ladder (see `guarded_completion`)
+-----------------------------------------
+1. compact the repetitive tail, then continue the same assistant message (`continue_final_message`)
+2. compact, then restart: drop the continuation so the model is not anchored to the looping text
+3. exhausted -> return the compacted partial flagged `saker_guard.incomplete`, never an error that
+   discards the work and never a silent dud
+
+What it refuses to do
+---------------------
+Structured output (JSON, grammar, tool calls, code fences) is never rewritten. Errors never carry
+partial output or upstream bodies, since those can contain prompt text. Thinking is never logged.
+
+All numeric thresholds here were set from measurement, not intuition; the comments say which
+observation each one came from. Where a rule exists because of a measured engine behaviour, that is
+noted at the rule, because the behaviour is not obvious from the code.
+"""
 
 from dataclasses import dataclass, field
 import argparse
@@ -22,6 +59,10 @@ LOG = logging.getLogger("saker-guard")
 
 @dataclass(frozen=True)
 class Config:
+    """Validated settings. Bounds in `__post_init__` exist to keep the guard inside the behaviour it
+    was measured on: an unbounded tail window or recovery count turns a bounded rewrite into an
+    open-ended one, and a malformed upstream URL would silently proxy somewhere unintended."""
+
     upstream: str = "http://127.0.0.1:8081"
     hide_thinking: bool = True
     max_recoveries: int = 2
@@ -52,6 +93,13 @@ class Config:
 
 
 class GuardError(Exception):
+    """A request-stopping condition with a machine-readable `code` and an HTTP status.
+
+    Codes are the guard's contract with the caller: `loop_recovery_exhausted` and
+    `still_repetitive` arrive as a 200 with `saker_guard.incomplete`, while the rest are errors.
+    499 means the caller disconnected, so nothing is written back.
+    """
+
     def __init__(self, code, message, status=502):
         super().__init__(message)
         self.code, self.status = code, status
@@ -59,6 +107,15 @@ class GuardError(Exception):
 
 @dataclass
 class Completion:
+    """Accumulator for one upstream attempt, merged across attempts during recovery.
+
+    Text is appended as deltas arrive, so a continuation adds to what is already there rather than
+    replacing it. That is what makes recovery work, but it also means the engine echoing the
+    assistant message back (measured: it does) would duplicate the preserved prefix - `reconcile`
+    removes that echo after each attempt. `incomplete` is set only on the paths that return partial
+    work, so its presence is the caller's signal that the answer is unfinished.
+    """
+
     meta: dict = field(default_factory=dict)
     content: str = ""
     reasoning_content: str = ""
@@ -119,7 +176,14 @@ class Completion:
 
 
 def buffered_sse(result, hide_thinking, include_usage):
-    """One valid OpenAI stream, emitted only after recovery has finished."""
+    """Serialise a finished result as ONE valid OpenAI SSE stream.
+
+    Frame order matters to clients: role, then reasoning, then content, then tool calls, then a
+    terminal frame carrying `finish_reason`. The usage frame is emitted last with `choices: []`,
+    which is what OpenAI does and why a client must not read `choices` off the final frame. The
+    guard's own `saker_guard` block rides on the terminal frame so a streaming caller can still see
+    that a recovery happened.
+    """
     response = result.response(hide_thinking)
     message = response["choices"][0]["message"]
     meta = {**result.meta, "object": "chat.completion.chunk"}
@@ -143,6 +207,12 @@ def buffered_sse(result, hide_thinking, include_usage):
 
 
 def check_alive(deadline, cancelled):
+    """Single place where a disconnected caller or a blown deadline becomes a stop.
+
+    Called before and after every blocking read, and again when an error is being translated, so a
+    socket we closed from the watchdog thread is reported as `client_disconnected`/`deadline_exceeded`
+    rather than as a confusing protocol error.
+    """
     if cancelled():
         raise GuardError("client_disconnected", "Client disconnected.", 499)
     if time.monotonic() >= deadline:
@@ -150,7 +220,19 @@ def check_alive(deadline, cancelled):
 
 
 def upstream_events(config, body, authorization, deadline, cancelled):
-    """Closing this generator closes the HTTP socket, cancelling llama.cpp's task."""
+    """Yield decoded SSE frames from upstream. Closing this generator closes the HTTP socket.
+
+    That close is the cancellation mechanism: llama.cpp abandons the task when the client goes away,
+    so the guard must close *before* issuing a summary or continuation, or a single-slot engine keeps
+    generating the abandoned attempt while the next one queues.
+
+    The watchdog thread exists because a per-read timeout is not enough: a peer that dribbles bytes
+    slowly keeps every individual read inside the timeout forever. Closing the socket from another
+    thread interrupts that.
+
+    Line and event size caps are deliberate - this parses a stream from a model, so a malformed or
+    runaway event must fail loudly instead of being buffered without limit.
+    """
     check_alive(deadline, cancelled)
     url = urlsplit(config.upstream)
     connection = http.client.HTTPConnection(url.hostname, url.port or 80,
@@ -225,6 +307,13 @@ def upstream_events(config, body, authorization, deadline, cancelled):
 
 
 def prepare_request(body):
+    """Validate the caller's request and force the settings the guard depends on.
+
+    Always streams upstream (the guard needs deltas to detect a loop as it forms) and always asks for
+    usage, regardless of what the caller requested; `stream` is re-applied to the caller's own
+    response later. A default max_tokens is set because an unbounded generation is exactly the case
+    the guard is meant to survive.
+    """
     if not isinstance(body, dict) or not isinstance(body.get("messages"), list) or not body["messages"]:
         raise GuardError("invalid_request", "messages must be a nonempty array.", 400)
     if body.get("n", 1) != 1:
@@ -283,6 +372,13 @@ def read_attempt(config, body, result, authorization, deadline, cancelled,
 
 
 def safe_to_compact(original, result):
+    """Whether this response may be rewritten at all.
+
+    Compaction is a lossy edit, so it is refused wherever losing text would corrupt a contract:
+    JSON/grammar-constrained output, logprobs, and tool calls are all machine-parsed, and a code
+    fence means the caller is assembling code. In those cases the loop is still reported
+    (`unsafe_compaction`) but the bytes are left alone.
+    """
     response_type = original.get("response_format", {}).get("type", "text")
     constrained = response_type != "text" or any(original.get(k) for k in
         ("grammar", "json_schema", "logprobs", "functions"))
@@ -372,6 +468,14 @@ def summarize_tail(config, original, tail, authorization, deadline, cancelled):
 
 
 def guarded_completion(config, original, authorization, cancelled):
+    """Run the request, recovering from loops, and return the result the caller should see.
+
+    The loop is: snapshot the channels, read one attempt, reconcile any echoed prefix, act on a
+    detection. On a detection the tail is compacted (always, including on the partial path, so
+    repetition never leaves the guard in bulk), then either the ladder continues or the work is
+    returned flagged `incomplete`. `expected` tells `read_attempt` which text the engine will echo
+    back, so the echo is not counted as model output; it is empty for a restart, which does not echo.
+    """
     body = prepare_request(original)
     deadline = time.monotonic() + config.timeout
     result = Completion()
@@ -444,6 +548,13 @@ def guarded_completion(config, original, authorization, cancelled):
 
 
 def make_server(address, config):
+    """Build the threaded HTTP server. One guarded request runs at a time.
+
+    Capacity is a single permit by design: recovery issues follow-up calls that assume they own the
+    engine's slot and its KV cache, and `continue_final_message` plus slot reuse is not safe to
+    interleave across concurrent callers. Extra callers get 503 `guard_busy` rather than a result
+    built on someone else's state.
+    """
     capacity = threading.BoundedSemaphore(1)
 
     class Handler(BaseHTTPRequestHandler):
@@ -612,6 +723,8 @@ def parse_cli(argv=None):
 
 
 def main(argv=None):
+    """Serve until interrupted. The pidfile is written only after the port is bound, so a supervisor
+    that waits on it cannot race the listener."""
     address, config = parse_cli(argv)
     logging.basicConfig(level=getattr(logging, config.log_level),
                         format="%(asctime)s %(levelname)s %(message)s")
