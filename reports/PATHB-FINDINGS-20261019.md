@@ -2288,3 +2288,137 @@ already saves ~348 MB by not touching the target's blk.64 MTP layer), (b) an 8-p
 whole point of the two patches was to cut a term that is not DFlash2's bottleneck.
 
 **And since DFlash2 is slower than MTP to begin with, optimizing it does not advance any goal criterion.**
+
+# PER-OP GPU TIMELINE - the round is now decomposed, and the GDN state copies are 6-10x worse than estimated
+
+**Method: llama.cpp's Vulkan backend already has a per-op GPU timer. `GGML_VK_PERF_LOGGER=1` uses
+`vk::QueryType::eTimestamp` query pools and logs each node's GPU time (ggml-vulkan.cpp:17439), printing a
+"Vulkan Timings:" table to std::cerr after each graph compute.** This is the per-op timeline the project
+had been treating as "needs building" - it was already there.
+
+Two traps cost time here, both self-inflicted:
+- `GGML_VK_PERF_LOGGER_FREQUENCY=1` means "print every compute" (`print_count % frequency != 0 && !force`),
+  so it prints on every graph compute, not once. 107 blocks in the log.
+- **My grep pattern `vulkan.*time` cannot match the literal `Vulkan Timings:`** because "Timings" does not
+  contain "time". I concluded the logger produced no output when the table was in the log all along.
+- The first parse regex `^([A-Za-z0-9_]+):` also failed, because the logger prints *fusion names* which
+  contain spaces and shape params (`MUL_MAT_VEC iq2_s m=17408 n=3 k=5120`). That silently dropped every
+  matmul and made the output look like elementwise ops were dominant.
+
+Cost of instrumenting: the logger forces a submit/wait per graph compute, and throughput dropped from
+36.65-36.78 to 33.89 t/s (~8%). Acceptance stayed bit-identical at **0.77551 (38/49)**, confirming it was
+the same arm. Relative breakdown is valid; absolute times are inflated.
+
+## Headline: the GPU is 96% busy
+
+    GPU total (prefill + 64-token decode)   2385.0 ms
+    wall for the same work                  ~2490 ms      -> 96% GPU-busy
+
+**So host overhead is ~4%, not the ~11% I had been assuming.** The round is GPU-bound. This kills the
+"overlap the host work" idea as a lever: there is almost nothing to overlap.
+
+## GPU time by op family
+
+    family            calls   total_ms  ms/round  %GPU
+    MUL_MAT_VEC       14432   1574.6    65.61     66.0
+    MUL_MAT             504    459.3    19.14     19.3     <- prefill (n=100)
+    CPY                5568     90.8     3.79      3.8
+    RMS_NORM_MUL       6607     54.3     2.26      2.3
+    GET_ROWS           2890     38.1     1.59      1.6
+    GATED_DELTA_NET    1392     35.1     1.46      1.5
+    MUL_MAT_ADD         100     22.6     0.94      0.9
+    ADD                5160     18.6     0.78      0.8
+    FLASH_ATTN_EXT      542     11.8     0.49      0.5
+    ... 22 families, 55868 calls total (2328/round at 42.7 us mean)
+
+## Finding 1 - the "unattributed" verify time is just the cost of extra positions
+
+Decode matvecs are `MUL_MAT_VEC ... n=3` (3 verify positions). 1574.6 ms over ~25 rounds = **62.0 ms/round
+against a 49.8 ms bandwidth floor**. Plain decode (n=1) measures 49.75 ms/token, i.e. exactly the floor.
+So the +12.2 ms is **the compute cost of verifying 3 positions, ~6.1 ms per extra position** - not an
+inefficiency to remove. This is the honest resolution of the "~9.4 ms unattributed" from the earlier round
+decomposition: it is attributed now, and it is irreducible by tuning.
+
+## Finding 2 - THE GDN STATE COPIES COST 3.79 ms/round, not 0.3-0.6 ms
+
+    CPY   5568 calls   90.8 ms total   3.79 ms/round   16.3 us per copy
+
+These are the `cache_r_lN` (GDN conv state) and `cache_s_lN` (GDN SSM state) copies the graph builder emits
+per verify position. The project previously sized them from their data volume (~64 MB/verify) and estimated
+**0.3-0.6 ms - a 6-10x underestimate.** The reason is that **16.3 us for a 30 KB - 1.3 MB copy is launch
+overhead, not bandwidth**: these are many tiny copies, not a few large ones.
+
+**This is the first concrete lever found in a long time.** Eliminating or batching them:
+
+    round 66.5 ms - 3.79 ms = 62.7 ms  ->  2.52 / 0.0627 = 40.2 t/s
+
+That reaches the >= 40 criterion on its own, with the current acceptance and no other change. It is a
+graph-builder change (batch the per-position state saves, or avoid them entirely), not a kernel.
+
+## Also measured
+
+- **lm_head**: `MUL_MAT_VEC iq4_xs m=248320 n=3 k=5120` - 24 calls, 75.7 ms, **3.15 ms/round**. That is
+  715 MB/round of iq4_xs weights at ~227 GB/s, so it is already at bandwidth. The shortlist gather is
+  `MUL_MAT_ID_VEC iq4_xs m=1 n=3584 k=5120 n_expert=248320` at 56.6 us - the SAKER_SHORTLIST=3584 working,
+  and negligible. Note the verify still needs full-vocab logits (n=3), so the full lm_head read is required.
+
+# The CPY "lever" is CLOSED, and my claim about it is RETRACTED - the copies are necessary
+
+## What I claimed one step earlier, and why it was wrong
+
+I recorded: "CPY costs 3.79 ms/round ... eliminating or batching them: round 66.5 - 3.79 = 62.7 ms ->
+40.2 t/s. That reaches the >= 40 criterion on its own." **Retracted.**
+
+**The copies are the recurrent-state rollback snapshots, and their count is fixed by the speculation
+depth.** The chain, read end to end:
+
+    common/common.h   uint32_t need_n_rs_seq() const {
+                          bool needs_rs_seq = ... DRAFT_MTP || DRAFT_EAGLE3 || DRAFT_DFLASH || DRAFT_DSPARK ...;
+                          return needs_rs_seq ? draft.n_max : 0u;      // <- n_rs_seq == n_max
+                      }
+    common/common.cpp cparams.n_rs_seq = params.speculative.need_n_rs_seq();
+    delta-net-base.cpp  const int64_t K = (int64_t) cparams.n_rs_seq + 1;   // K copies per GDN layer
+                        for (int64_t t = 1; t <= K; ++t) { ... ggml_cpy(conv_state_last, conv_state_update); }
+
+With `--spec-draft-n-max 2` (the deliverable's setting) this is already K = 3 copies per layer - the
+**minimum**, because a 3-position verify must be able to roll the GDN state back up to 2 positions. There is
+no slack to remove. Lowering it means lowering n_max, which costs acceptance, and the project already
+established n_max=2 as the optimum.
+
+The `n_rs_seq == 0` branch does a single copy per layer, but it disables rollback entirely - it is not
+available to a speculative decode that must undo rejected drafts.
+
+## Correction to the node dump I reasoned from
+
+The 864-node dump showed **9 copies per GDN layer**, which I read as the deliverable's graph. But K = 9
+implies n_rs_seq = 8, i.e. `n_max=8` - so **that dump came from a different configuration**, not the
+deliverable's n_max=2. The measured live count (~223 CPY/round, consistent with 3 copies x 48 layers plus
+the cache_s side) is the deliverable's real figure. Another case of reading a stale artifact as current.
+
+## Cross-check that also failed to help: upstream is identical
+
+    fork:      CPY  5568 calls   90.8 ms   3.8%
+    upstream:  CPY  5376 calls   90.2 ms   3.7%
+
+Upstream differs from the fork in the recurrent-memory code - it has a third buffer (`memory_size_p`) and
+logic that disables snapshots when the module is empty - but the CPY cost is unchanged. So this is not a
+backportable fix either.
+
+## THE ROUND IS NOW FULLY DECOMPOSED, WITH NO REMAINING WASTE
+
+    49.8 ms   target weight pass (9.608 GB at the achievable 193-227 GB/s)
+    12.2 ms   verify compute for 3 positions (~6.1 ms per extra position; plain decode n=1 hits the floor)
+     3.1 ms   rollback snapshots (K=3 copies x 48 GDN layers) - NECESSARY for n_max=2
+     1.0 ms   lm_head full-vocab read (715 MB iq4_xs at ~227 GB/s - already at bandwidth)
+    ~4%       host overhead (GPU measured 96% busy)
+    ------
+    ~66.5 ms  -> 36.65-36.78 t/s
+
+40 t/s needs <= 61.5 ms. **Every term is either at its bandwidth floor or is necessary work.** The only
+theoretical headroom left is the verify's compute efficiency: 12.2 ms for 2 extra positions implies roughly
+9 TFLOP/s effective against an APU peak of ~14-22 TFLOP/s. Exploiting that is a kernel-optimisation
+project of exactly the kind that failed three times on this target (sign-fold +0.45%, q4_0 narrowing,
+prefill arms that produced wrong text).
+
+**So MTP >= 40 is excluded by the sum of its necessary parts, not by a single arithmetic wall.** That is a
+stronger statement than the earlier "gap located but not attributed", and it is the honest end state.

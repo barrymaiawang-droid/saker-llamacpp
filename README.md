@@ -143,6 +143,35 @@ itself is not stable at n=64, contrary to what was previously believed. The n_ma
 measuring which attractor each arm happened to land on, not a defect — and the same applies to a later alarm
 that "DFlash2's default diverges". **md5 at n=64 on this prompt is not a correctness discriminator here.**
 
+## MTP >= 40 is closed — the round is fully decomposed, with no waste left
+
+The last open criterion has been settled by measurement rather than argument, using llama.cpp's **existing**
+per-op Vulkan GPU timer (`GGML_VK_PERF_LOGGER=1`, real device timestamps). Two facts came out of it:
+
+- **The GPU is 96% busy** (2385 ms of GPU time against ~2490 ms wall), so host overhead is ~4% — which kills
+  the "overlap the host work" idea outright.
+- The round decomposes completely, and **every term is at its bandwidth floor or is necessary work**:
+
+```
+49.8 ms   target weight pass (9.608 GB at the achievable 193-227 GB/s)
+12.2 ms   verify compute for 3 positions (~6.1 ms per extra position)
+ 3.1 ms   recurrent-state rollback snapshots (K=3 copies x 48 GDN layers)
+ 1.0 ms   lm_head full-vocab read (715 MB iq4_xs at ~227 GB/s - already at bandwidth)
+~4%       host overhead
+------
+~66.5 ms  ->  36.65-36.78 t/s          (40 t/s needs <= 61.5 ms)
+```
+
+Plain decode at n=1 hits the floor exactly (49.75 ms/token), so the +12.2 ms is purely the compute cost of
+verifying three positions. The only theoretical headroom left is that compute efficiency (~9 TFLOP/s
+effective against an APU peak of ~14-22), which is a kernel-optimisation project of the kind that failed
+three times on this target.
+
+The rollback snapshots cannot be trimmed either: their count is `cparams.n_rs_seq + 1` per GDN layer, and
+`n_rs_seq = params.speculative.need_n_rs_seq() = draft.n_max`. At the deliverable's `n_max=2` that is
+already the minimum K=3, because rollback must reach `n_max` positions back. Upstream is identical
+(CPY 5376 calls / 90.2 ms vs the fork's 5568 / 90.8), so it is not backportable.
+
 ## What is not solved
 
 

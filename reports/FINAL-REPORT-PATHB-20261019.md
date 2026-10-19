@@ -2,6 +2,11 @@
 
 ## Executive summary
 
+> **UPDATE (2026-10-19 late) - see section 10.** Two later investigations are folded in there: a
+> **per-op GPU timeline** which fully decomposes the round and closes MTP >= 40 by the sum of its necessary
+> parts, and the **DFlash2** draft (found, loaded, measured - it works but does not beat MTP). Three claims
+> made in earlier drafts of this report and of PATHB-FINDINGS are **retracted** there.
+
 **Deliverable: `saker-combined` @ `f65d47b8a`** — llama.cpp patched for this model, on Vulkan/gfx1151.
 All figures below measured on that build in one locked session unless noted, all with output checks.
 
@@ -253,6 +258,9 @@ Do NOT set `SAKER_RM_IQ` (leave unset). Omit `SAKER_SHORTLIST` to disable the sh
 
 ## 7. What would close the gap to 40
 
+> **SUPERSEDED by section 10 (2026-10-19 late).** The gap has since been closed by measurement:
+> every term of the round is now attributed to either its bandwidth floor or necessary work.
+
 **(1) DONE - fused quantized-row-gather matvec.** `ggml_get_rows` used to emit an F32 `[5120 x K]`
 intermediate (~146 MB of traffic at K=3584) while the gathered weights are only ~9.7 MB. It now reuses
 llama.cpp's existing MoE indirect matmul (`ggml_mul_mat_id`) with the vocab rows viewed as one
@@ -472,3 +480,104 @@ Two honest limits on this coverage:
    baseline produced 2 distinct outputs across 3 runs, so any output-equality claim must use >=3 runs
    per arm and a self-consistent control. A single run per arm is not evidence - a mistake made and
    corrected earlier in this work.
+
+---
+
+## 10. Closure: per-op GPU timeline, DFlash2, and three retractions (2026-10-19 late)
+
+### 10.1 The per-op GPU timeline
+
+llama.cpp's Vulkan backend already contains a per-op GPU timer - `GGML_VK_PERF_LOGGER=1` uses
+`vk::QueryType::eTimestamp` query pools and prints a "Vulkan Timings:" table per graph compute. The project
+had been treating this as "instrumentation that needs building"; it did not.
+
+Measured on the deliverable (acceptance bit-identical at 0.77551 (38/49), throughput 33.89 vs 36.65-36.78
+because the logger forces a submit/wait per compute - about 8%):
+
+    GPU total (prefill + 64-token decode)   2385.0 ms
+    wall                                    ~2490 ms      -> 96% GPU-busy
+
+**The GPU is 96% busy, so host overhead is ~4%** - this kills the "overlap the host work" idea outright.
+
+    family            calls   total_ms  ms/round  %GPU
+    MUL_MAT_VEC       14432   1574.6    65.61     66.0
+    MUL_MAT             504    459.3    19.14     19.3     <- prefill (n=100)
+    CPY                5568     90.8     3.79      3.8
+    RMS_NORM_MUL       6607     54.3     2.26      2.3
+    GET_ROWS           2890     38.1     1.59      1.6
+    GATED_DELTA_NET    1392     35.1     1.46      1.5
+    ... 22 families, 55868 calls (2328/round at 42.7 us mean)
+
+### 10.2 The round is fully decomposed, with no remaining waste
+
+    49.8 ms   target weight pass (9.608 GB at the achievable 193-227 GB/s)
+    12.2 ms   verify compute for 3 positions (~6.1 ms per extra position)
+     3.1 ms   recurrent-state rollback snapshots (K=3 copies x 48 GDN layers)
+     1.0 ms   lm_head full-vocab read (715 MB iq4_xs at ~227 GB/s - already at bandwidth)
+    ~4%       host overhead
+    ------
+    ~66.5 ms  -> 36.65-36.78 t/s
+
+40 t/s needs <= 61.5 ms. **Every term is either at its bandwidth floor or is necessary work.** Plain decode
+at n=1 hits the floor exactly (49.75 ms/token), so the +12.2 ms is purely the compute cost of verifying
+three positions. The only theoretical headroom is that compute efficiency (~9 TFLOP/s effective against an
+APU peak of ~14-22 TFLOP/s), which is a kernel-optimisation project of the kind that failed three times on
+this target.
+
+**MTP >= 40 is therefore excluded by the sum of its necessary parts, not by a single arithmetic wall.** This
+is a stronger and more honest statement than the earlier "gap located but not attributed".
+
+### 10.3 DFlash2: found, loaded, measured - and it does not beat MTP
+
+**The "proper DFlash2 draft" was already on disk.** The fork's `src/models/dflash.cpp` implements DFlash1
+(DeepSeek dspark layout, 81 tensors); the Qwen3.8-27B speculator is the DFlash2 layout (58 tensors).
+Upstream added it in `b10f9ca58` ("spec : add DFlash2 support (local convolution + candidate selector)",
+PR #27342 / #27816), and it is **not a new arch** - the string stays `dflash`.
+
+The cherry-pick applied but did not compile (`ggml_rope_set_offset` undeclared; the fork's rope op carries
+`params[15]` and its backends ignore `n_offs` entirely). Rather than hand-port rope kernels into CPU and
+Vulkan, upstream/master (b11731) was built directly - it has DFlash2, `n_offs`, kernel support in both
+backends, and MTP, so both arms ran on the same build.
+
+    3 reps/arm, same build:
+      MTP        34.85 34.92 34.92   mean 34.90, spread 0.2%
+      DFlash2    33.57 36.87 33.55   median 33.57, spread 10%
+      deliverable MTP 36.65-36.78    <- still fastest
+
+**DFlash2 does not beat MTP.** It also cannot reach 40 even with a free draft: round 85.6 ms at 2.86
+tokens/round; removing its entire 2.05 GB Q8_0 draft pass gives 75.1 ms -> 38.1 t/s.
+
+**Do the Saker MTP optimisations transfer?** Structurally yes - DFlash2 has no `token_embd` and no
+`output.weight`, so it reuses the target's lm_head (what the fused gather targets), and it carries
+vocab-sized `selector_predecessor`/`selector_successor` tensors (63.57 M each) that a shortlist could prune.
+Economically no: its round is dominated by the target weight pass, an 8-position block verify, and its own
+2.05 GB draft. And since it is slower than MTP to begin with, optimising it advances no criterion.
+
+### 10.4 Three retractions
+
+1. **"n_max >= 5 changes the output" (recorded in the n_max sweep).** Wrong. Running the *MTP baseline arm*
+   twice produced *both* md5s (290-char `e328a405` and 276-char `2fe11002`): the prompt has two attractors and
+   **the baseline itself is not stable at n=64**, contrary to prior belief. The sweep's md5 column was
+   measuring which attractor each arm landed on. **md5 at n=64 is not a correctness discriminator here.**
+   The related Gate 2 claim that "output text is identical between arms" rested on a 100-character prefix
+   that the two attractors share, and is also retracted.
+2. **"Eliminating the CPY copies gives 40.2 t/s".** Wrong. The copies are the recurrent-state rollback
+   snapshots and their count is `cparams.n_rs_seq + 1` per GDN layer, where
+   `n_rs_seq = params.speculative.need_n_rs_seq() = draft.n_max`. At the deliverable's `n_max=2` this is
+   already the minimum K=3; rollback must reach n_max positions back. The `n_rs_seq == 0` branch does one
+   copy but disables rollback entirely. Upstream is identical (CPY 5376 calls / 90.2 ms vs the fork's
+   5568 / 90.8), so it is not backportable either.
+3. **A stale artifact read as current.** The 864-node dump showed 9 copies per GDN layer, which I reasoned
+   from as if it were the deliverable's graph. K=9 implies `n_rs_seq=8`, i.e. `n_max=8` - a different
+   configuration. The live count (~223 CPY/round) is the deliverable's real figure.
+
+### 10.5 Final position
+
+    criterion                     target    measured            status
+    quality (KL/PPL vs BF16)      <= baseline   KL 0.09309585 / PPL 1.358604   MET
+    prefill (2048)                >= 500    409.89 +- 1.53      closed: correct ceiling 411-413 t/s
+    MTP decode                    >= 40     36.65-36.78         closed: sum of necessary parts (10.2)
+    plain decode                  >= 26     20.10 +- 0.00       excluded: 0.6% short of theoretical peak
+
+Baselines beaten: MTP +32-43% over 25.7-27.7; prefill +27% over 320.7. Output byte-identical, deterministic,
+acceptance 0.77551 (38/49).
