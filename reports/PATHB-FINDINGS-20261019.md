@@ -2180,3 +2180,111 @@ against the MTP head's 5.3 ms, which is precisely where DFlash2's larger round c
 of the same speculator are published (`HermiHg/...-Q2_K_S-MIX-GGUF`, `Akicou/...`). That would cut the draft
 term directly - but it is a fresh download and a fresh measurement, and the ceiling it could buy is
 33.41 -> ~40 only if the draft cost halves with no acceptance loss, which is an assumption, not a result.
+
+# CORRECTION - two wrong claims about DFlash2 output md5, and a variance finding
+
+**I got this wrong twice. Both are retracted.**
+
+## What I claimed, and why it was wrong
+
+Claim 1 (recorded in the n_max sweep section): "n_max 3 and 4 reproduce the baseline md5 2fe11002;
+n_max 5/6/8 do not (e328a405), so high-n_max DFlash2 is a different generation."
+
+Claim 2 (raised during the optimization investigation): "DFlash2's default output md5 is e328a405, the
+diverged value, so the default diverges."
+
+**Both are wrong, and the measurement that shows it is the baseline arm itself.** Running the MTP arm twice
+on the same build, same server, same prompt:
+
+    arm      run  t/s     md5        len   acc
+    mtp       1    34.86   e328a405   290   0.760
+    mtp       2    34.93   2fe11002   276   0.776     <- SAME ARM, DIFFERENT OUTPUT
+    dfl-n3    1    33.60   e328a405   290   0.631
+    dfl-n3    2    36.95   e328a405   290   0.729
+    dfl-n4    1    33.82   2fe11002   276   0.566
+    dfl-n4    2    34.24   2fe11002   276   0.566
+
+The baseline arm produces **both** md5s. There are two attractors - 276 chars (`2fe11002`) and 290 chars
+(`e328a405`) - and which one a run lands on is not a property of the arm. So:
+
+- The n_max sweep's md5 column measured **which attractor each arm happened to land on**, not a defect.
+  "n_max>=5 diverges" is retracted.
+- DFlash2's default landing on `e328a405` is **not** a divergence. Retracted.
+- The Gate 2 claim that "output text is identical between arms" was based on a **100-character prefix**;
+  the two attractors share their first 100 chars and differ later. That claim was under-evidenced and is
+  also retracted.
+
+This is the same non-reproducibility this project already recorded (at 256 tokens, 2 distinct outputs in 3
+runs of the baseline). **It also happens at n=64**, which was previously believed reproducible (5 runs/arm
+byte-identical). The lesson is narrower and more useful than "speculation is lossy": **md5 at n=64 on this
+prompt is not a correctness discriminator, because the baseline itself is not stable.**
+
+## Variance finding - the earlier DFlash2-vs-MTP comparison was under-powered
+
+    MTP, first Gate 2 run            31.96 t/s
+    MTP, md5 check (2 runs)          34.86 / 34.93 t/s      <- +9% over the first reading
+    DFlash2 n_max=3 (2 runs)         33.60 / 36.95 t/s      <- 10% spread WITHIN the arm
+
+So single-run arm comparisons on this box are not decisive. Any DFlash2-vs-MTP claim needs >=3 reps per arm.
+The honest current statement is: **on the same upstream build, DFlash2 and MTP are within noise of each
+other (both ~34-37 t/s), not the clean +4.5% I reported from one run each.**
+
+## What survives from the investigation (these are solid)
+
+- DFlash2's GGUF is **Q8_0, 1.92 B params, 2.05 GB, 8.50 bits/param** (measured from tensor types, not the
+  filename). A full draft pass therefore reads ~2.05 GB -> ~10.5 ms at 195 GB/s.
+- DFlash2 has **no token_embd and no output.weight** - it reuses the target's lm_head.
+- It has 5 blocks and vocab-sized selector tensors (`selector_predecessor` / `selector_successor`,
+  63.57 M params each = ~248070 x 256).
+- Under DFlash2 the target's MTP layer (blk.64, ~348 MB, 12 tensors) is **unused**, which is why DFlash2's
+  prompt eval is ~618 ms against MTP's ~1396 ms for the same 104-token prompt.
+
+# DFlash2 vs MTP, properly powered (3 reps/arm) - DFlash2 does NOT win
+
+    arm       run1    run2    run3    mean/median   spread   md5s
+    mtp       34.85   34.92   34.92   34.90         0.2%     e328a405 / 2fe11002 / 2fe11002
+    dfl-n3    33.57   36.87   33.55   33.57 (med)   10%      e328a405 x3
+    dfl-n3b   33.87   34.28   34.00   34.05         1.2%     2fe11002 x3
+
+**Label bug, stated for the record: `dfl-n3b` is actually `--spec-draft-n-max 4`.** A sed edited the arm's
+label without editing its argument. The numbers are valid; the name is wrong.
+
+## Conclusions
+
+1. **DFlash2 does not beat MTP on the same build.** 33.57 (median) against 34.90, and MTP is far more stable
+   (0.2% spread vs 10%). The "+4.5% for DFlash2" reported from the first Gate 2 run is retracted: that run
+   paired a lucky DFlash2 sample (33.41, close to its own median) against a depressed MTP baseline (31.96,
+   against 34.90 here).
+2. **MTP's own baseline moved 31.96 -> 34.90 (+9%) between sessions on the same build.** Single-run arm
+   comparisons on this box are not decisive; 3 reps minimum.
+3. **The deliverable (fork MTP + shortlist + fused gather, 36.65-36.78) remains the fastest configuration
+   measured**, ahead of upstream MTP (34.90) and DFlash2 (33.57).
+
+## DFlash2 cannot reach 40 even with a free draft
+
+Using its own measured numbers at the median acceptance (round 85.6 ms, 2.86 tokens/round, 33.4 t/s):
+
+    draft cost 2.05 GB Q8_0 -> ~10.5 ms/round
+    if the draft were FREE:  round 85.6 - 10.5 = 75.1 ms -> 2.86/0.0751 = 38.1 t/s
+
+So eliminating the entire draft pass still leaves DFlash2 short of 40. (The single high-acceptance outlier
+run - 36.87 t/s at acc 0.729 - would project to ~42 with a free draft, but that run is not reproducible:
+the same arm gave acc 0.631 on its other two reps.)
+
+**This closes DFlash2 as a route to the MTP >= 40 criterion.**
+
+## Does the MTP optimization transfer? Structurally yes, economically no
+
+    Saker MTP patch              targets                          applies to DFlash2?
+    SAKER_SHORTLIST              draft head's per-step vocab read  yes - DFlash2 has vocab-sized
+                                                                   selector tensors (63.57 M each)
+    fused gather-matvec lm_head  the gather over the 248k vocab    yes - DFlash2 has NO own
+                                                                   token_embd/output.weight, it
+                                                                   reuses the target's lm_head
+
+But the payoff is small: DFlash2's round is dominated by (a) the target weight pass (~47.5 ms, and it
+already saves ~348 MB by not touching the target's blk.64 MTP layer), (b) an 8-position block verify, and
+(c) its 2.05 GB draft (~10.5 ms). The lm_head and selector reads are a few ms of an ~85 ms round - and the
+whole point of the two patches was to cut a term that is not DFlash2's bottleneck.
+
+**And since DFlash2 is slower than MTP to begin with, optimizing it does not advance any goal criterion.**

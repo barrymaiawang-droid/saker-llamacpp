@@ -90,47 +90,61 @@ file is z-lab's speculator in a **different format built for the vLLM stack** (`
 Using it would mean implementing a new arch in llama.cpp (different topology, not a rename) or running
 the speculator on vLLM. Neither is a configuration change.
 
-## DFlash2: found, loaded, measured — and it does not displace the deliverable
+## DFlash2: found, loaded, measured — works, but does not beat MTP
 
 **There is a proper DFlash2 draft on HuggingFace, and it was the file already on disk.** The blocker was
 never the model: this fork's `src/models/dflash.cpp` implements **DFlash1** (the DeepSeek dspark layout —
 `attn_sinks`, `markov_w1/w2`, `hc_head_*`, the 81-tensor set). The Qwen3.8-27B speculator is the **DFlash2**
 layout (58 tensors). Upstream added DFlash2 in `b10f9ca58` ("spec : add DFlash2 support (local convolution +
-candidate selector)", PR #27342 / #27816), and it is **not a new arch** — the string stays `dflash` and the
+candidate selector)", PR #27342 / #27816) and it is **not a new arch** — the string stays `dflash` and the
 DFlash2 path lives inside `dflash.cpp`.
 
 A cherry-pick onto this fork applied but **did not compile** (`ggml_rope_set_offset` undeclared), because
-that helper came from a *different* upstream commit (`fe8156f78`, PR #27120) and the fork's rope op is one
-field short (`params[15]`) with **backends that ignore `n_offs` entirely**. Finishing it would have meant
-hand-porting rope kernels into CPU *and* Vulkan in a tree already carrying the Saker Vulkan patches. So
-upstream/master (b11731) was built directly — it has DFlash2, `n_offs`, kernel support in both backends,
-and MTP, so both arms run on the **same build**.
+that helper came from a *different* upstream commit (`fe8156f78`, PR #27120), the fork's rope op is one field
+short (`params[15]`), and **the fork's backends ignore `n_offs` entirely**. Finishing it meant hand-porting
+rope kernels into CPU *and* Vulkan in a tree already carrying the Saker Vulkan patches. So upstream/master
+(b11731) was built directly — it has DFlash2, `n_offs`, kernel support in both backends, and MTP, so both
+arms run on the **same build**.
 
-    ARM                            t/s     acc/round  mean_len   output md5
-    MTP (upstream, no shortlist)   31.96     0.760      2.52      2fe11002
-    DFlash2 (default n_max=3)      33.41     0.631      2.86      2fe11002
-    deliverable MTP (this repo)    36.65-36.78                              <- still ships
+### Measurement (3 reps per arm — single runs are not decisive on this box)
 
-DFlash2 **works, is lossless at its default, and beats MTP by +4.5% on an identical build** — winning
-*despite lower acceptance* because its mean accepted length is 2.86 vs 2.52 (block_size=8, n_extract=5).
-But it sits **below the shipped deliverable**, because the deliverable's MTP carries two MTP-specific Saker
-patches (shortlist vocab pruning, fused gather-matvec lm_head) that cannot transfer — the shortlist prunes
-the target's own nextn head, which DFlash2 does not use.
+    arm                                   tok/s            spread
+    MTP (upstream, no shortlist)          34.85 34.92 34.92   (mean 34.90, 0.2%)
+    DFlash2 (default n_max=3)             33.57 36.87 33.55   (median 33.57, 10%)
+    DFlash2 (n_max=4)                     33.87 34.28 34.00   (mean 34.05, 1.2%)
+    deliverable MTP (this repo)           36.65-36.78             <- still fastest
 
-`n_max` sweep (its default 3 is already optimal, and high values **change the output**):
+**DFlash2 does not beat MTP.** The deliverable — with the two MTP-specific Saker patches — remains the
+fastest configuration measured.
 
-    n_max   t/s     mean_len  output md5
-    3(*)   33.41     2.86     2fe11002   <- baseline preserved
-    4      25.22     3.15     2fe11002   <- baseline preserved
-    5      21.66     3.26     e328a405   <- DIVERGES
-    6      20.93     3.50     e328a405   <- DIVERGES
-    8      18.05     3.50     e328a405   <- DIVERGES
+### DFlash2 cannot reach 40 even with a free draft
 
-**Verdict: DFlash2 is a real, working, lossless speculator, but it is not a route to 40 tok/s** — its round
-is 85.6 ms against the deliverable's ~66.5 ms, and reaching 40 there needs mean_len 3.42 vs the measured
-2.86. The one untested lever is the **draft quant** (2.06 GB of Q8_0 costs ~10 ms of weight reads per round
-against the MTP head's 5.3 ms) — smaller quants of the same speculator exist, but that is a fresh download
-and a fresh measurement, and the ceiling assumes a halved draft cost with no acceptance loss.
+    round 85.6 ms at 2.86 tokens/round -> 33.4 t/s
+    its draft is 2.05 GB of Q8_0 (1.92 B params, measured from tensor types) -> ~10.5 ms/round
+    if the draft were FREE: round 75.1 ms -> 38.1 t/s      <- still short of 40
+
+That closes DFlash2 as a route to the MTP >= 40 criterion.
+
+### Do the Saker MTP optimizations transfer to DFlash2?
+
+Structurally **yes** — DFlash2 has no `token_embd` and no `output.weight`, so it reuses the target's lm_head
+(what the fused gather targets), and it carries vocab-sized `selector_predecessor`/`selector_successor`
+tensors (63.57 M each), which a shortlist-style pruning could cut. Economically **no**: DFlash2's round is
+dominated by the target weight pass (~47.5 ms), an 8-position block verify, and its 2.05 GB draft — the
+lm_head and selector reads are a few ms of an ~85 ms round. And since DFlash2 is slower than MTP to begin
+with, optimizing it advances no goal criterion.
+
+### RETRACTION — the earlier n_max output claim was wrong
+
+An earlier version of this file said "n_max >= 5 CHANGES the output (md5 2fe11002 -> e328a405)" and treated
+that as a correctness caveat. **That was wrong and is retracted.** Running the *MTP baseline arm* twice
+produced *both* md5s (290-char and 276-char continuations): the prompt has two attractors and the baseline
+itself is not stable at n=64, contrary to what was previously believed. The n_max sweep's md5 column was
+measuring which attractor each arm happened to land on, not a defect — and the same applies to a later alarm
+that "DFlash2's default diverges". **md5 at n=64 on this prompt is not a correctness discriminator here.**
+
+## What is not solved
+
 
 ## What is not solved
 
