@@ -75,6 +75,21 @@ byte-identical — which is precisely why the end-to-end check cannot see it and
 audit can. The narrowing fix was attempted three times and failed; the trade-off was accepted
 explicitly (performance-first) rather than hidden. See `reports/FINAL-REPORT-PATHB-20261019.md` §9.
 
+## Tried and not possible: DFlash2 as a draft instead of MTP
+
+`--spec-type draft-dflash` with `Qwen3.8-27B-DFlash2-Q8_0.gguf` **fails to load**:
+
+    error loading model: done_getting_tensors: wrong number of tensors; expected 81, got 58
+
+llama.cpp here registers `LLM_ARCH_DFLASH` and `src/models/dflash.cpp` exists, and the GGUF declares
+`general.architecture = dflash` — but the layouts differ entirely. This fork's `dflash` implements the
+**DeepSeek-V4 dspark** tensor set (`attn_sinks`, `markov_w1/w2`, `hc_head_*`); the Qwen3.8-27B DFlash2
+file is z-lab's speculator in a **different format built for the vLLM stack** (`attn_conv_*`,
+`ffn_conv_*`). It is an architecture mismatch, **not** a tokenizer one — the tokenizer matches fine.
+
+Using it would mean implementing a new arch in llama.cpp (different topology, not a rename) or running
+the speculator on vLLM. Neither is a configuration change.
+
 ## What is not solved
 
 - **MTP ≥ 40**: the remaining gap is ~2.5–4.7 ms per round. It is *located but not attributed* —

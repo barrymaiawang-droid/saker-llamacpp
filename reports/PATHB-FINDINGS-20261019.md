@@ -1912,3 +1912,46 @@ SSM/GDN compute ops, and now the state-cache copies.
 This is the honest end state of the investigation: **located to within a factor of ten, not attributed.**
 A next step that would actually settle it is a per-op GPU timeline (device timestamps per node) rather
 than more node counting - the node counts have now been exhausted as a diagnostic.
+
+# DFlash2 as a draft instead of MTP: NOT POSSIBLE - different architecture, not a tokenizer issue
+
+Attempted `--spec-type draft-dflash` with
+`/home/hycris/models/Qwen3.8-27B-DFlash2-GGUF/Qwen3.8-27B-DFlash2-Q8_0.gguf` (2.06 GB, Q8_0):
+
+    E llama_model_load: error loading model: done_getting_tensors: wrong number of tensors;
+      expected 81, got 58
+    E common_speculative_init_result: failed to load draft model
+
+## Why
+
+llama.cpp here DOES register `LLM_ARCH_DFLASH` (`src/llama-arch.cpp:139`, arch string `"dflash"`) and
+`src/models/dflash.cpp` exists - so the spec type is real and supported. The GGUF even declares
+`general.architecture = dflash`. **But the tensor layouts are entirely different:**
+
+| DFlash2 (Qwen3.8-27B) tensors | this fork's `dflash.cpp` expects |
+|---|---|
+| `blk.N.attn_conv_base`, `blk.N.attn_conv_proj.weight` | `layer.wq_a` (`LLM_TENSOR_ATTN_Q_A`) |
+| `blk.N.ffn_conv_base`, `blk.N.ffn_conv_proj.weight` | `LLM_TENSOR_ATTN_SINKS` |
+| `blk.N.attn_k_norm`, `attn_q_norm`, `attn_output` | `LLM_TENSOR_DSPARK_MARKOV_W1/W2`, `CONF_PROJ` |
+| `enc.output_norm.weight` | `LLM_TENSOR_HC_HEAD_FN/BASE/SCALE` |
+| **58 tensors** | **81 expected** |
+
+`attn_sinks`, `markov_w*` and `hc_head_*` are **DeepSeek-V4 dspark tensors**. So this fork's
+`LLM_ARCH_DFLASH` implements the **DeepSeek-V4 dspark/dflash** layout, not z-lab's Qwen3.8-27B DFlash2
+layout. The Qwen file is a different format built for the **vLLM stack**.
+
+## Correction to my own earlier note
+
+My project notes recorded DFlash2 as "not a DeepSeek option... a draft head must share the target's
+tokenizer". **That reasoning does not apply here**: this target IS Qwen3.8-27B, so the tokenizer matches
+perfectly. The real blocker is the **architecture/tensor layout**, not the vocabulary. The note was right
+about the conclusion for a different target and wrong about the reason for this one - a reminder that a
+note written against one target should not be trusted against another without re-deriving it.
+
+## What it would take to use it
+
+Either (a) a converter from the z-lab DFlash2 layout into this fork's dflash tensors - which is not a
+rename but a different model topology, so it means implementing a new arch in llama.cpp - or (b) running
+the speculator on the vLLM stack, which is outside this project's boundaries. Neither is a configuration
+change, and the draft is 2.06 GB Q8_0 so a draft pass would read ~10 ms of weights anyway - it would have
+to draft a block per pass to be competitive with the MTP head's 5.3 ms/round.
