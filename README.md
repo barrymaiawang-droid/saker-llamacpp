@@ -90,6 +90,31 @@ file is z-lab's speculator in a **different format built for the vLLM stack** (`
 Using it would mean implementing a new arch in llama.cpp (different topology, not a rename) or running
 the speculator on vLLM. Neither is a configuration change.
 
+## DFlash2: the port target is identified, the port is not done
+
+Upstream **has** DFlash2 support — `b10f9ca58  spec : add DFlash2 support (local convolution +
+candidate selector) (#27342) (#27816)`, with 20 references to the DFlash2 tensor names
+(`attn_conv`, `ffn_conv`) in upstream `src/models/dflash.cpp`. Note it is **not a new arch** — the string
+stays `dflash` and the DFlash2 path lives inside `dflash.cpp`, which is exactly why the GGUF declared
+`architecture = dflash` and still failed against this fork's older DFlash1 implementation.
+
+The port was **prepared but not completed** — the tree is ready and the upstream remote is fetched:
+
+    cd /home/hycris/llama.cpp-dflash2          # branch saker-dflash2 @ f65d47b8a, Saker patches included
+    git cherry-pick b10f9ca58                  # + a11f57ba9 (output head sharing), cc231cb0d (NVFP4 scales)
+    cmake --build build --target llama-server llama-bench -j 10
+    # GATE 1: does it load?  (no "expected 81, got 58")
+    llama-server -m <IQ2_S target> -md <DFlash2 gguf> -ngl 99 -c 4096 --spec-type draft-dflash
+    # GATE 2: measure vs the MTP arm (36.65-36.78 t/s, acceptance 0.77551)
+
+Two attempts died before the fetch completed: one on a runaway `git fetch` that dumped 765,574 tokens into
+its context, the second on a provider quota (`429 / code 1310`, resets 2026-10-23).
+
+**Why it is worth finishing**: acceptance is the only lever that reaches 40 tok/s without touching the
+weight pass — A=2.46 → 37.0 (measured), A=2.70 → ~40.6, A=3.00 → ~45.1. The MTP head gives A=2.46. The
+counterweight is real (2.06 GB Q8_0 draft ≈ 10 ms of weights per pass vs the MTP head's 5.3 ms/round), so
+it must draft a block per pass to win — measure, do not assume.
+
 ## What is not solved
 
 - **MTP ≥ 40**: the remaining gap is ~2.5–4.7 ms per round. It is *located but not attributed* —

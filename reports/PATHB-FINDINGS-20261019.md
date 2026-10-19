@@ -1955,3 +1955,87 @@ rename but a different model topology, so it means implementing a new arch in ll
 the speculator on the vLLM stack, which is outside this project's boundaries. Neither is a configuration
 change, and the draft is 2.06 GB Q8_0 so a draft pass would read ~10 ms of weights anyway - it would have
 to draft a block per pass to be competitive with the MTP head's 5.3 ms/round.
+
+# DFlash2: the draft is CORRECT, the FORK is too old. Root cause found.
+
+Follow-up to the failed DFlash2 load. **This was never a model problem.**
+
+- The canonical Qwen3.8-27B DFlash2 speculator is **`z-lab/Qwen3.8-27B-DFlash2`** (mirrored
+  `incoai/Qwen3.8-27B-DFlash2`), and its GGUF is **`incoai/Qwen3.8-27B-DFlash2-GGUF`** (mirrored
+  `z-lab/...`). Community quants also exist (`Akicou/...`, `HermiHg/...-Q2_K_S-MIX-GGUF`).
+  **We already have the right file** at
+  `~/models/Qwen3.8-27B-DFlash2-GGUF/Qwen3.8-27B-DFlash2-Q8_0.gguf`.
+- **llama.cpp PR #27342 — "spec : add DFlash2 support (local convolution + candidate selector)" by
+  SubSir — is merged into mainline.** It adds the DFlash2 path.
+- Our fork `llama.cpp-qwen38` predates it: its `src/models/dflash.cpp` implements **DFlash1**
+  (the DeepSeek dspark layout - `attn_sinks`, `markov_w1/w2`, `hc_head_*`), which is exactly the
+  **81-tensor** set the loader expected. The Qwen3.8-27B DFlash2 GGUF is the **DFlash2** layout with
+  **58 tensors** (`attn_conv_*`, `ffn_conv_*`, `enc.output_norm`).
+
+**So the fix is to bring PR #27342 into the fork, not to find another model.**
+
+Caveat on provenance: the PR number, title, author and merged status come from a web search, not from
+inspecting the PR myself. Verify against the actual commit before relying on it.
+
+## Why this could matter more than anything else left
+
+The MTP head gives acceptance A = 2.46 (p1 0.778, p2 0.71) and the round is ~66.5 ms. A purpose-built
+DFlash2 speculator is a different class of draft - it selects from a candidate set with a local
+convolution rather than reusing the target's nextn head - so its acceptance could be substantially
+higher. Higher A is the one lever that moves MTP >= 40 without touching the weight pass:
+
+    round 66.5 ms, A = 2.46 -> 37.0 tok/s        (measured)
+    same round,   A = 3.00 -> 45.1 tok/s
+    same round,   A = 2.70 -> 40.6 tok/s
+
+The draft cost would rise (2.06 GB Q8_0, so ~10 ms per draft pass versus the MTP head's 5.3 ms/round),
+so the net is not simply proportional - it has to be measured. But **this is the first lever identified
+in a long time that is not arithmetically closed**, and it needs a code port rather than a kernel.
+
+# DFlash2 port: TARGET IDENTIFIED (fetch done, cherry-pick not started)
+
+The quiet upstream fetch SUCCEEDED on node A in tree `/home/hycris/llama.cpp-dflash2`
+(`git fetch -q --no-tags upstream master > /tmp/fetch.log 2>&1`):
+
+    upstream/master = 42b70032b
+
+**The DFlash2 commit is confirmed:**
+
+    b10f9ca58  spec : add DFlash2 support (local convolution + candidate selector) (#27342) (#27816)
+
+So the PR number (#27342) was correct and it landed upstream as **#27816**. Verification that upstream
+actually handles the Qwen3.8-27B DFlash2 layout:
+
+    upstream src/models/dflash.cpp  -> 20 references to attn_conv / ffn_conv / dflash2
+    upstream src/llama-arch.cpp     ->  0 references to dflash2
+
+i.e. DFlash2 is **not a new arch** - the string stays `dflash` and the DFlash2 path lives inside
+`dflash.cpp`. That is exactly why the GGUF declared `general.architecture = dflash` and still failed:
+the fork's `dflash.cpp` is the older DFlash1 (DeepSeek dspark) implementation.
+
+Related dflash follow-ups worth including in the port:
+    a11f57ba9  model : fix DFlash output head sharing (#30111)
+    cc231cb0d  dflash: pass missing NVFP4 scales to attention operations (#28000)
+
+## The port that remains
+
+    cd /home/hycris/llama.cpp-dflash2          # branch saker-dflash2 @ f65d47b8a
+    git cherry-pick b10f9ca58                  # + a11f57ba9, cc231cb0d if they apply
+    cmake --build build --target llama-server llama-bench -j 10
+    # GATE 1: does the GGUF load?
+    llama-server -m <IQ2_S target> -md /home/hycris/models/Qwen3.8-27B-DFlash2-GGUF/Qwen3.8-27B-DFlash2-Q8_0.gguf \
+        -ngl 99 -c 4096 --spec-type draft-dflash
+    # GATE 2: measure vs the MTP arm (36.65-36.78 t/s, acceptance 0.77551)
+
+The upstream remote is already added and fetched, so the cherry-pick can start immediately.
+
+## Blocker: subagent quota exhausted
+
+Both port attempts were killed before the fetch completed - the first by a runaway `git fetch` that dumped
+765,574 tokens into its context, the second by the provider quota:
+
+    429 / code 1310: "you have reached the weekly/monthly usage limit, resets 2026-10-23 09:09:03"
+
+**No further subagents can be launched on `zai-coding-cn/glm-5.3` until 2026-10-23.** The parent had ~10%
+context left and could not do the cherry-pick + build + measurement itself, so the port is left at a clean,
+prepared state: tree ready, remote fetched, target commit identified.
