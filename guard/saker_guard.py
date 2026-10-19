@@ -586,9 +586,52 @@ def make_server(address, config):
             except (BrokenPipeError, ConnectionResetError, socket.timeout):
                 pass
 
+        # Read-only endpoints a client uses to discover what it is talking to. These are forwarded
+        # verbatim; everything else that is not the guarded chat route is refused.
+        READ_ONLY_PATHS = ("/health", "/props", "/metrics", "/v1/models")
+
+        def do_GET(self):
+            """Forward read-only endpoints.
+
+            A client that lists models before chatting would otherwise see the guard as a broken
+            server, because /v1/models is how it decides the endpoint is usable. Only reads are
+            forwarded: generation routes other than /v1/chat/completions stay refused, since they
+            would bypass loop recovery entirely.
+            """
+            path = self.path.split("?", 1)[0]
+            if not any(path == p or path.startswith(p + "/") for p in self.READ_ONLY_PATHS):
+                self.send_json(404, {"error": {"code": "not_proxied", "message": (
+                    "Only /v1/chat/completions is guarded. "
+                    "/v1/models, /health, /props and /metrics are passed through.")}})
+                return
+            url = urlsplit(config.upstream)
+            connection = http.client.HTTPConnection(url.hostname, url.port or 80,
+                                                    timeout=config.idle_timeout)
+            try:
+                connection.request("GET", self.path)
+                response = connection.getresponse()
+                payload = response.read()
+                self.send_payload(response.status, payload,
+                                  response.getheader("Content-Type", "application/json"))
+            except (OSError, http.client.HTTPException):
+                self.send_json(502, {"error": {"code": "upstream_unreachable",
+                                               "message": "Upstream did not answer."}})
+            finally:
+                connection.close()
+
+        def do_OPTIONS(self):
+            self.close_connection = True
+            self.send_response(204)
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Headers", "*")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
         def do_POST(self):
             if self.path != "/v1/chat/completions":
-                self.send_json(404, {"error": {"message": "Use /v1/chat/completions; other generation routes are not proxied."}})
+                self.send_json(404, {"error": {"code": "not_proxied", "message":
+                    "Use /v1/chat/completions; other generation routes are not proxied."}})
                 return
             if not capacity.acquire(blocking=False):
                 self.send_json(503, {"error": {"code": "guard_busy", "message": "One guarded request is already running."}})

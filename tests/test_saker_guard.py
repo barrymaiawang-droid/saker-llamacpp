@@ -54,6 +54,15 @@ def fake_upstream(scenarios):
         def log_message(self, *args):
             pass
 
+        def do_GET(self):
+            payload = json.dumps({"object": "list",
+                                  "data": [{"id": "saker-swift", "object": "model"}]}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
         def do_POST(self):
             body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
             requests.append(body)
@@ -217,6 +226,33 @@ class ProxyTests(unittest.TestCase):
                 status, raw, _ = chat(url)
         self.assertEqual(status, 200, raw)
         self.assertEqual(requests[1]["messages"][-2]["content"], "you are looped")
+
+    def test_models_endpoint_is_proxied_so_a_client_can_discover_the_server(self):
+        # Regression: the guard originally 501'd every GET, so a client that lists models before
+        # chatting saw a broken endpoint.
+        upstream, _ = fake_upstream([{"deltas": [{"content": "x"}]}])
+        with running(upstream) as upstream_url:
+            with running(make_server(("127.0.0.1", 0), Config(upstream=upstream_url))) as url:
+                with urllib.request.urlopen(url + "/v1/models", timeout=10) as response:
+                    status, body = response.status, json.loads(response.read())
+        self.assertEqual(status, 200)
+        self.assertEqual(body["data"][0]["id"], "saker-swift")
+
+    def test_unguarded_generation_route_is_still_refused(self):
+        upstream, _ = fake_upstream([{"deltas": [{"content": "x"}]}])
+        with running(upstream) as upstream_url:
+            with running(make_server(("127.0.0.1", 0), Config(upstream=upstream_url))) as url:
+                self.assertEqual(chat(url)[0], 200)  # the guarded route still works
+                request = urllib.request.Request(url + "/v1/completions", b'{"prompt":"x"}',
+                                                 {"Content-Type": "application/json"})
+                try:
+                    with urllib.request.urlopen(request, timeout=10) as response:
+                        code, raw = response.status, response.read()
+                except urllib.error.HTTPError as error:
+                    with error:
+                        code, raw = error.code, error.read()
+        self.assertEqual(code, 404)
+        self.assertEqual(json.loads(raw)["error"]["code"], "not_proxied")
 
     def test_structured_output_is_never_compacted(self):
         for extra, prefix in [({"response_format": {"type": "json_object"}}, ""), ({}, "```python\n")]:
