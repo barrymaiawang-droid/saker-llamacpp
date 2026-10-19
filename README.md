@@ -31,7 +31,7 @@ moved. The MTP ≥40 and prefill ≥500 targets were not reached.
 | `--spec-draft-n-max 2` (a flag, no code) | 25.7–27.7 → 34.3 |
 | MTP draft-head **shortlist** (`SAKER_SHORTLIST=3584`) | 34.3 → 36.19 |
 | **fused gather-matvec** reusing `ggml_mul_mat_id` | 36.19 → 36.65–36.78 |
-| **APU GEMM retune** (`BN` 128→256, live by default) | prefill 299 → 409.89 |
+| **APU GEMM retune** (`BN` 128→256, live by default) | prefill 299 → 402.82 at **`-ub 256`** (+34%). At the default `-ub 512` it is a **regression** (292 → 267); pin `-ub 256`. |
 
 The shortlist scores only K candidate rows of the shared LM head instead of all 248,320; the fused
 gather removes the F32 `[5120×K]` intermediate by reusing llama.cpp's existing MoE indirect matmul
@@ -62,7 +62,7 @@ cmake --build build --target llama-server -j 20
 
 SAKER_SHORTLIST=3584 build/bin/llama-server \
   -m Swift-1.5-Qwen3.8-27B-GSQ-RCO-IQ2_S-mtp.gguf \
-  -ngl 99 -c 4096 --host 127.0.0.1 --port 8080 --temp 0 --no-webui \
+  -ngl 99 -c 4096 -ub 256 --host 127.0.0.1 --port 8080 --temp 0 --no-webui \
   --spec-type draft-mtp --spec-draft-n-max 2
 ```
 
