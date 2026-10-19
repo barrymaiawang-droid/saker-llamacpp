@@ -172,6 +172,40 @@ The rollback snapshots cannot be trimmed either: their count is `cparams.n_rs_se
 already the minimum K=3, because rollback must reach `n_max` positions back. Upstream is identical
 (CPY 5376 calls / 90.2 ms vs the fork's 5568 / 90.8), so it is not backportable.
 
+## Lever inventory — all closed
+
+Every identified route to the unmet criteria has now been measured. The negatives are as much a result as
+the positives:
+
+| lever | outcome |
+|---|---|
+| MTP draft-head shortlist (`SAKER_SHORTLIST=3584`) | **shipped** — 34.3 → 36.19 |
+| fused gather-matvec lm_head | **shipped** — 36.19 → 36.57-37.00 |
+| APU prefill GEMM retune (BN 256) | **shipped** — 409.89 ± 1.53 t/s |
+| DFlash2 draft | measured — does not beat MTP (33.57 median vs 34.90), can't reach 40 even with a free draft |
+| CPY / rollback snapshots | necessary work — count is `n_rs_seq + 1` = `n_max + 1`, already minimal at n_max=2 |
+| matvec workgroup geometry (`SAKER_DMMV_HEUR`) | **falsified −8.3%** — AMD's SUBGROUP default is right |
+| n_max sweep (3…8) | default already optimal |
+| sign-fold dequant ALU | +0.45% on Vulkan (failed earlier) |
+| prefill ≥ 500 | closed — correct ceiling 411-413 t/s |
+| plain ≥ 26 | excluded — 0.6% short of theoretical peak bandwidth |
+
+### The DMMV falsification, as an example of how these were settled
+
+The per-op timeline showed matvecs at 66% of GPU time. The workgroup heuristic that picks
+`DMMV_WG_SIZE_LARGE` for small-m/large-k is gated to NVIDIA/Intel, so AMD always gets `SUBGROUP`. The
+untried experiment was letting AMD enter the real per-op rule (env-gated as `SAKER_DMMV_HEUR`, default
+behaviour unchanged, tree `llama.cpp-dmmvheur` @ `e8201e7c6`):
+
+```
+ctrl  (SUBGROUP)            36.95  36.89  36.85   mean 36.90   (0.3% spread)
+heur  (SAKER_DMMV_HEUR=1)   33.82  33.84  33.83   mean 33.83   (0.1% spread)   -> -8.3%
+acceptance 0.77551 (38/49) and md5 2fe11002 in ALL six runs
+```
+
+The control reproduced the shipped deliverable exactly, so the comparison is sound; the output stayed
+bit-identical, so the change is lossless but simply slower.
+
 ## What is not solved
 
 

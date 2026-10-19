@@ -2422,3 +2422,61 @@ prefill arms that produced wrong text).
 
 **So MTP >= 40 is excluded by the sum of its necessary parts, not by a single arithmetic wall.** That is a
 stronger statement than the earlier "gap located but not attributed", and it is the honest end state.
+
+# DMMV workgroup heuristic on AMD - FALSIFIED (-8.3%), and the matvec-geometry lever is closed
+
+## The lead
+
+The per-op timeline put MUL_MAT_VEC at 66% of GPU time, running 24% above the bandwidth floor at n=3. The
+matvec workgroup heuristic that picks `DMMV_WG_SIZE_LARGE` for small-m / large-k is **gated to
+NVIDIA/Intel**, so this AMD device always gets `SUBGROUP`:
+
+    uint32_t dmmv_wg = DMMV_WG_SIZE_SUBGROUP;
+    if ((NVIDIA && !PRE_TURING) || INTEL) {          // <- AMD never enters
+        if (a_type == Q6_K) { if (m <  4096 && k >= 1024) dmmv_wg = LARGE; }
+        else                { if (m <= 8192 && k >= 1024) dmmv_wg = LARGE; }
+    }
+
+The prior `SAKER_DMMV_WG` knob forced one value globally and showed LARGE helps plain decode but destroys
+MTP - consistent with the rule wanting *per-op* selection. So the untried experiment was to let AMD enter
+the real per-op heuristic.
+
+## The change (tree /home/hycris/llama.cpp-dmmvheur, branch saker-dmmvheur, commit e8201e7c6)
+
+Env-gated, default behaviour unchanged:
+
+    if (getenv("SAKER_DMMV_HEUR") != nullptr || (ctx->device->vendor_id == VK_VENDOR_ID_NVIDIA ...
+
+Applied at both gate sites (7865, 8032). Verified in the built artefact: `SAKER_DMMV_HEUR` present in
+`libggml-vulkan.so.0.20.0`, freshness source 19:42:49 -> object 19:45:03 -> binary 19:46:01.
+
+## The measurement (one binary, env-toggled, so no build-to-build confound; 3 reps/arm)
+
+    arm                         run1    run2    run3    mean    spread
+    ctrl  (SUBGROUP)            36.95   36.89   36.85   36.90   0.3%
+    heur  (SAKER_DMMV_HEUR=1)   33.82   33.84   33.83   33.83   0.1%
+                                                        -> -8.3%
+
+    acceptance 0.77551 (38/49) in ALL six runs;  md5 2fe11002 in ALL six runs
+
+**Falsified.** AMD's SUBGROUP default is correct for this workload, and the heuristic's "LARGE when
+m <= 8192" choice is actively wrong here. The matvec-geometry lever is closed.
+
+Two useful by-products:
+- **The control reproduced the deliverable exactly** (36.85-36.95 against the shipped 36.65-36.78), so the
+  clone is a faithful baseline and this A/B is trustworthy.
+- **The output was bit-identical across all six runs** (2fe11002, 276 chars). So the two-attractor
+  behaviour seen in the earlier session may be *session-dependent* (GPU/driver state) rather than a property
+  of the arm. That does not restore md5 as a correctness discriminator - the baseline still flipped within
+  one session - but it narrows what is flipping and when.
+
+## Lever inventory after this - all closed
+
+    DFlash2 draft                 measured, does not beat MTP, cannot reach 40 even with a free draft
+    CPY / rollback snapshots      necessary work; count = n_rs_seq+1 = n_max+1, already minimal
+    matvec workgroup geometry     FALSIFIED -8.3% (this entry)
+    n_max sweep                   default already optimal
+    lm_head shortlist + fused gather   already shipped (+32-43% over baseline)
+    sign-fold dequant ALU         +0.45% on Vulkan (failed earlier)
+    prefill >= 500                closed: correct ceiling 411-413
+    plain >= 26                   excluded: 0.6% short of theoretical peak
