@@ -85,6 +85,8 @@ def fake_upstream(scenarios):
                                 self.wfile.write(b"data: " + json.dumps(frame).encode() + b"\n\n")
                                 self.wfile.flush()
                             break
+                if scenario.get("hold"):
+                    scenario["hold"].wait(20)  # keep the request in flight so concurrency is observable
                 for delta in scenario["deltas"]:
                     frame = {"id": "chatcmpl-test", "created": 123, "model": "swift",
                              "choices": [{"index": 0, "delta": delta, "finish_reason": None}]}
@@ -253,6 +255,34 @@ class ProxyTests(unittest.TestCase):
                         code, raw = error.code, error.read()
         self.assertEqual(code, 404)
         self.assertEqual(json.loads(raw)["error"]["code"], "not_proxied")
+
+    def test_concurrent_requests_are_served_up_to_the_limit_then_refused(self):
+        # Live: a single permit made the GUARD the bottleneck. dsh held one generation open, so every
+        # other request got 503 while llama-server still had n_slots = 4 free.
+        gate = threading.Event()
+        upstream, _ = fake_upstream([{"deltas": [{"content": "ok"}], "hold": gate}])
+        with running(upstream) as upstream_url:
+            server = make_server(("127.0.0.1", 0), Config(upstream=upstream_url, max_concurrent=2))
+            with running(server) as url:
+                results, lock, start = [], threading.Lock(), threading.Barrier(3)
+
+                def fire():
+                    start.wait(5)
+                    code = chat(url)[0]
+                    with lock:
+                        results.append(code)
+
+                threads = [threading.Thread(target=fire) for _ in range(3)]
+                for thread in threads:
+                    thread.start()
+                time.sleep(0.8)  # two are held in flight; the third cannot acquire
+                with lock:
+                    refused = results.count(503)
+                gate.set()
+                for thread in threads:
+                    thread.join(timeout=15)
+        self.assertEqual(refused, 1, "expected exactly one 503 at max_concurrent=2, got %r" % results)
+        self.assertEqual(sorted(results), [200, 200, 503])
 
     def test_structured_output_is_never_compacted(self):
         for extra, prefix in [({"response_format": {"type": "json_object"}}, ""), ({}, "```python\n")]:

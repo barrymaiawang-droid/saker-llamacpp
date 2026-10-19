@@ -72,6 +72,12 @@ class Config:
     idle_timeout: float = 120
     max_output_chars: int = 131072
     max_body_bytes: int = 4 * 1024 * 1024
+    # How many guarded requests may be in flight. llama-server runs n_slots = 4 here, so a limit of 1
+    # made the guard the bottleneck rather than the model: a second chat, or any background request,
+    # got 503 while one generation was running (observed live from dsh). Recovery does not need
+    # exclusive ownership of the engine - continuations use cache_prompt=false and re-prefill, so a
+    # follow-up does not have to land on the same slot.
+    max_concurrent: int = 4
     pidfile: str | None = None
     log_level: str = "INFO"
     # Short and direct: this mirrors what the operator does by hand (stop the turn, say the model is
@@ -90,6 +96,8 @@ class Config:
             raise ValueError("timeouts must be positive; max_output_chars must be >=128")
         if not 1 <= len(self.nudge) <= 500:
             raise ValueError("nudge must be 1..500 characters")
+        if not 1 <= self.max_concurrent <= 64:
+            raise ValueError("max_concurrent must be 1..64")
 
 
 class GuardError(Exception):
@@ -548,14 +556,13 @@ def guarded_completion(config, original, authorization, cancelled):
 
 
 def make_server(address, config):
-    """Build the threaded HTTP server. One guarded request runs at a time.
+    """Build the threaded HTTP server, allowing `config.max_concurrent` guarded requests at once.
 
-    Capacity is a single permit by design: recovery issues follow-up calls that assume they own the
-    engine's slot and its KV cache, and `continue_final_message` plus slot reuse is not safe to
-    interleave across concurrent callers. Extra callers get 503 `guard_busy` rather than a result
-    built on someone else's state.
+    The limit exists so a burst cannot pile unbounded work onto the engine; it should be set to the
+    engine's slot count (default 4) rather than 1, or the guard becomes the bottleneck. Callers over
+    the limit get 503 `guard_busy` rather than a result built on someone else's state.
     """
-    capacity = threading.BoundedSemaphore(1)
+    capacity = threading.BoundedSemaphore(config.max_concurrent)
 
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -634,7 +641,8 @@ def make_server(address, config):
                     "Use /v1/chat/completions; other generation routes are not proxied."}})
                 return
             if not capacity.acquire(blocking=False):
-                self.send_json(503, {"error": {"code": "guard_busy", "message": "One guarded request is already running."}})
+                self.send_json(503, {"error": {"code": "guard_busy", "message": (
+                    "All %d guarded request slots are busy." % config.max_concurrent)}})
                 return
             try:
                 if self.headers.get("Transfer-Encoding") or not self.headers.get("Content-Length"):
@@ -738,6 +746,8 @@ def parse_cli(argv=None):
                           help="include reasoning text in responses")
     parser.set_defaults(hide_thinking=True)
     parser.add_argument("--max-recoveries", type=int, default=2, help="loop recoveries per request (0-2)")
+    parser.add_argument("--max-concurrent", type=int, default=Config().max_concurrent,
+                        help="guarded requests in flight at once; match the engine's slot count")
     parser.add_argument("--tail-chars", type=int, default=4096, help="detection/compaction window")
     parser.add_argument("--summary-tokens", type=int, default=192, help="token cap for the compaction call")
     parser.add_argument("--nudge", default=Config().nudge,
@@ -753,6 +763,7 @@ def parse_cli(argv=None):
         upstream=args.upstream,
         hide_thinking=args.hide_thinking,
         max_recoveries=args.max_recoveries,
+        max_concurrent=args.max_concurrent,
         tail_chars=args.tail_chars,
         summary_tokens=args.summary_tokens,
         timeout=args.timeout,

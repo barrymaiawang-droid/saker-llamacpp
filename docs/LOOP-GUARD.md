@@ -104,9 +104,12 @@ Useful flags: `--max-recoveries` (0–2), `--tail-chars` (512–16384),
 
 ## Safety and limits
 
-- One guarded request at a time; extras get `503 guard_busy`. `continue_final_message`
-  and slot reuse make concurrent guard traffic hard to reason about, so it is refused
-  rather than silently interleaved.
+- `--max-concurrent` (default 4) guarded requests run at once; extras get
+  `503 guard_busy`. Match this to the engine's slot count. A default of 1 made the
+  GUARD the bottleneck rather than the model: one long dsh generation 503'd every
+  other request while llama-server still had slots free. Recovery does not need
+  exclusive engine ownership - continuations set `cache_prompt=false` and re-prefill,
+  so a follow-up need not land on the same slot.
 - Aborting a loop **closes the upstream socket before** the summary/continuation
   call, so a single-slot engine is not left generating the abandoned task while the
   next one queues.
