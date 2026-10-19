@@ -21,13 +21,46 @@ cost of this choice is that live token-by-token output is not available.
 | Exact repetition (same unit ≥4×) | Delete duplicates, keep one copy. **No model call.** |
 | Rambling: 6 near-identical sentences | One bounded summary call, then continue |
 | Structured output (JSON/grammar/tool call/code fence) | **Never rewritten** — abort with `unsafe_compaction` |
-| Still looping after `--max-recoveries` | Abort with `loop_recovery_exhausted` |
+| Still looping after `--max-recoveries` | Return the compacted partial flagged `incomplete="loop_recovery_exhausted"` |
 | Empty output with `finish_reason=length` | Abort with `empty_answer_length` (not a silent empty success) |
 
-Recovery preserves the clean prefix byte-for-byte and always runs through
-`continue_final_message`, so the model continues the same assistant message rather
-than restarting it. `add_generation_prompt=false` and `cache_prompt=false` are set
-on continuations, because the prefix is not guaranteed to extend one cached.
+## The nudge — doing what the operator does by hand
+
+When the model loops, the operator's proven fix is to stop the turn and type a short reminder. The
+guard does exactly that: both retries append `--nudge` as a **user message**, defaulting to
+
+```
+You are looped. Stop repeating and continue the answer.
+```
+
+**This measurably beats a long instruction.** An earlier version explained the interruption in a
+full paragraph; live, the model answered *the paragraph* or took the paragraph's own escape hatch
+("or say plainly that it cannot be finished" — removed for that reason). With the short reminder the
+same adversarial prompt that previously produced no answer at all produced the correct one:
+
+```
+... 12
+There are 150 minutes in 2.5 hours.
+Need ensure exactly 12. Let's count: ...
+```
+
+Set `--nudge` to change the wording. Keep it short and direct.
+
+## Recovery ladder
+
+| attempt | mechanism | why |
+|---|---|---|
+| 1 | compact the tail, then `continue_final_message` | best fidelity; the exact message is preserved and continued |
+| 2 | compact the tail, then **restart** | `continue_final_message` anchors the model to the looping text, so the retry drops it and re-asks with the progress as context instead |
+| exhausted | return the compacted partial, `saker_guard.incomplete="loop_recovery_exhausted"` | never discard everything behind an error, and never pass a silent dud off as an answer |
+
+After a recovery the detector tightens from 4 repeats / 128 chars to 3 / 96, because the model is
+known to be in a groove. If the final output is still repetitive but too short to cut on, it is
+flagged `incomplete="still_repetitive"`.
+
+Recovery preserves the clean prefix byte-for-byte. `add_generation_prompt=false` and
+`cache_prompt=false` are set on continuations, because the prefix is not guaranteed to extend one
+cached.
 
 The compaction call reuses the **same loaded Swift/MTP model** with
 `reasoning_effort:"none"`, a hard `max_tokens` cap and no tools. Keep it bounded or
@@ -66,7 +99,7 @@ Clients then call `http://127.0.0.1:18160/v1/chat/completions` with normal OpenA
 payloads. `Authorization` is forwarded upstream and never logged.
 
 Useful flags: `--max-recoveries` (0–2), `--tail-chars` (512–16384),
-`--summary-tokens` (16–512), `--timeout`, `--idle-timeout`, `--log-level`,
+`--summary-tokens` (16–512), `--nudge`, `--timeout`, `--idle-timeout`, `--log-level`,
 `--pidfile`.
 
 ## Safety and limits
@@ -85,7 +118,7 @@ Useful flags: `--max-recoveries` (0–2), `--tail-chars` (512–16384),
 
 ## Test status
 
-`python3 -m unittest discover -s tests -v` — **17 tests, all passing**, covering detection,
+`python3 -m unittest discover -s tests -v` — **19 tests, all passing**, covering detection,
 exact vs rambling recovery, continuation request shape, both visibility settings, streaming
 shape, tool-call assembly, cancellation, deadline, recovery exhaustion, structured-output
 refusal, echoed-prefix collapsing, the budget-exhausted trap, and the no-leak paths.
@@ -125,9 +158,12 @@ What live testing settled, including two things unit tests could not:
 
 ### A limitation live testing exposed
 
-Tail compaction **bounds** repetition; it does not guarantee a good continuation. With a prompt
-that orders the model to repeat a sentence twelve times, the guard compacted 12 copies to 1 and
-continued — after which the model wrote three more copies and stopped, returning no answer. The
-repetition was bounded (12 → 3, one recovery logged), which is the guard's contract, but the
-answer never arrived. Breaking a loop the model is *committed* to is a harder problem than
-detecting it; the continuation nudge helps and is not sufficient on its own.
+Tail compaction **bounds** repetition; it does not guarantee a good continuation. This is much
+better than it was — with the short `--nudge` the repeat-then-answer prompt now yields the correct
+answer — but a prompt that is *purely* an order to repeat can still exhaust recovery and return a
+flagged partial. The hard probe ("write it ten times, then answer") returned
+`incomplete="loop_recovery_exhausted"` with the repetition stripped and no answer.
+
+So the guarantees are: the loop is stopped, the repetition does not reach the caller in bulk, and
+the caller is always told when the answer is unfinished. A good answer is the normal outcome, not a
+guaranteed one.

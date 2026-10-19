@@ -33,6 +33,9 @@ class Config:
     max_body_bytes: int = 4 * 1024 * 1024
     pidfile: str | None = None
     log_level: str = "INFO"
+    # Short and direct: this mirrors what the operator does by hand (stop the turn, say the model is
+    # looping). A long paragraph of instructions buries the point and the model answers the paragraph.
+    nudge: str = "You are looped. Stop repeating and continue the answer."
 
     def __post_init__(self):
         url = urlsplit(self.upstream)
@@ -44,6 +47,8 @@ class Config:
             raise ValueError("tail_chars must be 512..16384; summary_tokens must be 16..512")
         if self.timeout <= 0 or self.idle_timeout <= 0 or self.max_output_chars < 128:
             raise ValueError("timeouts must be positive; max_output_chars must be >=128")
+        if not 1 <= len(self.nudge) <= 500:
+            raise ValueError("nudge must be 1..500 characters")
 
 
 class GuardError(Exception):
@@ -312,13 +317,9 @@ def reconcile(result, before):
     return changed
 
 
-def continuation_request(original, result, channel):
+def continuation_request(config, original, result, channel):
     body = prepare_request(original)
-    body["messages"].append({"role": "user", "content": (
-        "The current assistant response was interrupted by a repetition guard. "
-        "Its useful prefix is preserved below. Continue that exact assistant message "
-        "from where it ends. Do not restart, repeat the prefix, or discuss the interruption. "
-        "Proceed to the next useful step and finish the original answer.")})
+    body["messages"].append({"role": "user", "content": config.nudge})
     body["messages"].append(result.message())
     body["continue_final_message"] = channel
     body["add_generation_prompt"] = False
@@ -327,7 +328,7 @@ def continuation_request(original, result, channel):
     return body
 
 
-def restart_request(original, result, channel):
+def restart_request(config, original, result, channel):
     """Escalation: re-ask WITHOUT anchoring the model to the looping text.
 
     Measured: `continue_final_message` keeps the model in the groove it was looping in, so after a
@@ -336,11 +337,9 @@ def restart_request(original, result, channel):
     """
     body = prepare_request(original)
     body["messages"].append({"role": "user", "content": (
-        "The previous attempt to answer was interrupted by a repetition guard because it started "
-        "repeating itself. Progress already made, which may be partial:\n\n"
+        config.nudge + "\n\nProgress already made, which may be partial:\n\n"
         + getattr(result, channel) +
-        "\n\nDo not repeat any of that text and do not stop early. Continue from that progress "
-        "and finish the original answer now.")})
+        "\n\nDo not repeat any of that text and do not stop early.")})
     body["add_generation_prompt"] = True
     body["cache_prompt"] = False
     body.pop("seed", None)
@@ -437,7 +436,7 @@ def guarded_completion(config, original, authorization, cancelled):
             return result
         result.recoveries += 1
         escalate = result.recoveries > 1
-        body = restart_request(original, result, channel) if escalate else continuation_request(original, result, channel)
+        body = restart_request(config, original, result, channel) if escalate else continuation_request(config, original, result, channel)
         # Only a continuation can echo the assistant message back; a fresh restart cannot.
         expected = {} if escalate else {ch: getattr(result, ch) for ch in CHANNELS}
         LOG.info("loop recovered channel=%s kind=%s attempt=%d mode=%s",
@@ -587,6 +586,8 @@ def parse_cli(argv=None):
     parser.add_argument("--max-recoveries", type=int, default=2, help="loop recoveries per request (0-2)")
     parser.add_argument("--tail-chars", type=int, default=4096, help="detection/compaction window")
     parser.add_argument("--summary-tokens", type=int, default=192, help="token cap for the compaction call")
+    parser.add_argument("--nudge", default=Config().nudge,
+                        help="short message injected as the operator's 'you are looped' reminder")
     parser.add_argument("--timeout", type=float, default=600.0, help="total seconds per request")
     parser.add_argument("--idle-timeout", type=float, default=120.0, help="seconds between upstream bytes")
     parser.add_argument("--max-output-chars", type=int, default=131072, help="runaway-output safety limit")
@@ -605,6 +606,7 @@ def parse_cli(argv=None):
         max_output_chars=args.max_output_chars,
         pidfile=args.pidfile,
         log_level=args.log_level,
+        nudge=args.nudge,
     )
     return (args.host, args.port), config
 

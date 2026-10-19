@@ -167,6 +167,25 @@ class ProxyTests(unittest.TestCase):
         self.assertTrue(requests[2]["add_generation_prompt"])
         # The restart carries preserved progress as context, not as a message to continue.
         self.assertIn(unit.strip(), requests[2]["messages"][-1]["content"])
+        # Both retries carry the operator's manual reminder: stop the turn, say it is looping.
+        # (the continuation appends the assistant message after it; the restart does not)
+        for attempt in requests[1:]:
+            tail = " ".join(m.get("content") or "" for m in attempt["messages"][-2:])
+            self.assertIn(Config().nudge, tail)
+
+    def test_nudge_is_configurable_and_sent_verbatim(self):
+        _, config = parse_cli(["--nudge", "you are looped"])
+        self.assertEqual(config.nudge, "you are looped")
+        upstream, requests = fake_upstream([
+            {"deltas": [{"content": "same unit of text here. " * 12}]},
+            {"deltas": [{"content": "Recovered."}]},
+        ])
+        with running(upstream) as upstream_url:
+            with running(make_server(("127.0.0.1", 0),
+                                     Config(upstream=upstream_url, nudge="you are looped"))) as url:
+                status, raw, _ = chat(url)
+        self.assertEqual(status, 200, raw)
+        self.assertEqual(requests[1]["messages"][-2]["content"], "you are looped")
 
     def test_structured_output_is_never_compacted(self):
         for extra, prefix in [({"response_format": {"type": "json_object"}}, ""), ({}, "```python\n")]:
@@ -259,6 +278,7 @@ class ProxyTests(unittest.TestCase):
         self.assertEqual(continuation["continue_final_message"], "content")
         self.assertFalse(continuation["add_generation_prompt"])
         self.assertFalse(continuation["cache_prompt"])
+        self.assertEqual(continuation["messages"][-2]["content"], Config().nudge)
 
     def test_ramblings_use_one_bounded_summary_then_continue_from_cleaned_reasoning(self):
         prefix = "The computed count is 281.\n"
