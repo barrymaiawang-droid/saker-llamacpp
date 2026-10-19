@@ -2039,3 +2039,144 @@ Both port attempts were killed before the fetch completed - the first by a runaw
 **No further subagents can be launched on `zai-coding-cn/glm-5.3` until 2026-10-23.** The parent had ~10%
 context left and could not do the cherry-pick + build + measurement itself, so the port is left at a clean,
 prepared state: tree ready, remote fetched, target commit identified.
+
+# DFlash2 GATE 1 PASSED - the speculator LOADS and runs on upstream/master
+
+**The answer to "is there a proper DFlash2 draft" is YES, and it is the file we already had.**
+The blocker was the fork's age, exactly as suspected.
+
+Built `/home/hycris/llama.cpp-upstream` at **upstream/master = 42b70032b** (llama.cpp b11731) and loaded
+the DFlash2 speculator against the IQ2_S-mtp target:
+
+    I common_speculative_init_result: loading draft model '.../Qwen3.8-27B-DFlash2-Q8_0.gguf'
+    I common_speculative_impl_draft_dflash: adding speculative implementation 'draft-dflash'
+    I common_speculative_impl_draft_dflash: - n_max=3, n_min=0, p_min=0.00
+    I common_speculative_impl_draft_dflash: - block_size=8, mask_token_id=248070, n_extract=5, sample_from_anchor=true
+    I srv  llama_server: model loaded
+    I srv  llama_server: listening on http://127.0.0.1:18791
+
+No "wrong number of tensors". The 81-vs-58 error is gone.
+
+**What DFlash2 says about itself: block_size=8, n_extract=5** - a block speculator that can extract 5
+tokens per draft pass, against the MTP head's 2 (n_max=2). That is the number that decides whether it can
+pay for its 2.06 GB of weights.
+
+## Why the cherry-pick route was abandoned in favour of building upstream directly
+
+The cherry-pick onto the fork did apply (head dc5c79544, dflash.cpp gained 16 DFlash2 tensor refs), but it
+**failed to compile**:
+
+    src/models/dflash.cpp:847:18: error: 'ggml_rope_set_offset' was not declared in this scope
+
+Tracing that: `ggml_rope_set_offset` came from a *different* upstream commit -
+`fe8156f78 ggml: add ggml_rope_set_offset (+ metal support) (#27120)`. The fork's rope op carries
+`int32_t params[15]` (indices 0-14) while upstream writes `params[15]`, so the op is one field short, and
+**the fork's backends ignore n_offs entirely** (the grep hits in ggml-cpu/ops.cpp and ggml-vulkan.cpp were
+`rotate_pairs(..., n_offset, ...)` and `misalign_offsets`, unrelated). Upstream/master by contrast has
+n_offs in ggml.c (4 refs), ggml_rope_set_offset (2 refs), and honoured in **cpu (11 refs) and vulkan
+(3 refs)**.
+
+So finishing the cherry-pick would have meant hand-porting rope kernels into CPU *and* Vulkan in a tree
+that already carries the Saker Vulkan patches - the exact class of work that failed repeatedly on this
+project. Building upstream/master instead gets DFlash2 **and** n_offs **and** every backend's kernel
+support for free.
+
+Upstream/master also has the MTP path (`graph_mtp` in src/models/qwen35.cpp, `draft-mtp` in
+common/speculative.cpp), so the comparison arm runs on the **same build** - which is the fair test.
+
+## Traps hit on the way (both self-inflicted, both recorded)
+
+- A `git clone` of a local repo copies only `refs/heads`, **not** remote-tracking refs, so `upstream/master`
+  was missing in the clone and the checkout silently fell back to `saker-dflash2`, launching a build of the
+  tree that cannot compile. Fixed with an explicit refspec fetch.
+- `rm -rf build` raced with a build that had just been killed, leaving stale shader-gen output
+  ("cannot remove ... vulkan-shaders.spv: Directory not empty"). The next build then failed on
+  `MmTypeA / GGML_TYPE_Q4_0 undeclared` in mul_mm_funcs.glsl - a *stale-state* error, not a source error.
+  Cleanly removing the dir fixed it.
+
+# DFlash2 GATE 2 - measured. Works, wins on the same build, does NOT beat the deliverable.
+
+Both arms on the SAME upstream build (`llama.cpp-upstream` @ 42b70032b, provenance verified), prompt-short16,
+n_predict=64, temp 0, cache_prompt=false:
+
+    ARM                       t/s     draft_n  accepted  acc/round  mean_len
+    MTP (upstream, no shortlist)  31.96      50        38      0.760      2.52
+    DFlash2                       33.41      65        41      0.631      2.86
+
+Output text is IDENTICAL between the two arms (both begin "The user is asking me to review a HIP GEMM
+implementation..."), so DFlash2 is lossless on this prompt.
+
+**DFlash2 is +4.5% over MTP on the same build, and it wins while having LOWER acceptance per round**
+(0.631 vs 0.760). The reason is mean accepted length: 2.86 vs 2.52. That is the block_size=8 /
+n_extract=5 geometry doing exactly what it is supposed to - extracting more tokens per draft pass. The
+MTP head drafts 2 (n_max=2); DFlash2 extracts ~2.86.
+
+## But it does not beat what already ships
+
+    deliverable MTP (Saker shortlist + fused gather)   36.65-36.78 t/s
+    upstream MTP (same build as DFlash2)               31.96 t/s
+    DFlash2 (same build)                               33.41 t/s
+
+DFlash2 is below the deliverable because the deliverable's MTP carries two MTP-specific Saker patches
+(SAKER_SHORTLIST vocab pruning, and the fused gather-matvec lm_head) that **cannot transfer to DFlash2** -
+the shortlist prunes the target's own nextn head, which DFlash2 does not use.
+
+## Round arithmetic - is 40 reachable from here?
+
+    33.41 t/s at mean_len 2.86  ->  11.68 rounds/s  ->  round = 85.6 ms
+    (compare: the deliverable MTP round is ~66.5 ms)
+
+    40 t/s needs round <= 61.5 ms. At a 85.6 ms round that would need mean_len = 3.42.
+    So DFlash2 needs mean_len 2.86 -> 3.42 (+20%), or a cheaper draft pass, to reach 40.
+
+The draft is **Q8_0 (2.06 GB)**, so the draft pass reads ~10 ms of weights per round against the MTP head's
+5.3 ms - that is where DFlash2's larger round comes from. A smaller draft quant would attack exactly that
+term, and smaller quants of this speculator are published (`HermiHg/...-Q2_K_S-MIX-GGUF`, `Akicou/...`).
+Also untested: n_max (it defaults to 3 while block_size is 8).
+
+## Verdict
+
+**"Is there a proper DFlash2 draft on HuggingFace?" - YES, and it is the file we already had.** The whole
+problem was that this fork's dflash.cpp implements DFlash1. Upstream/master (b11731) loads it and runs it.
+It is a real, working, lossless-on-this-prompt speculator at 33.41 t/s - **but it is not yet a route to 40**,
+and it does not displace the 36.65-36.78 deliverable as it stands.
+
+# DFlash2 n_max sweep - the default (3) is already optimal, and n_max>=5 CHANGES THE OUTPUT
+
+Same build, same prompt, n_predict=64, temp 0:
+
+    n_max   t/s     draft_n  accepted  acc/round  mean_len  output md5
+    3(*)   33.41      65        41       0.631      2.86     2fe11002  <- baseline, preserved
+    4      25.22      76        43       0.566      3.15     2fe11002  <- baseline, preserved
+    5      21.66      95        43       0.453      3.26     e328a405  <- DIVERGES
+    6      20.93     108        45       0.417      3.50     e328a405  <- DIVERGES
+    8      18.05     125        45       0.360      3.50     e328a405  <- DIVERGES
+    (*) default
+
+**Two conclusions.**
+
+1. **n_max=3 (the default) is optimal.** Raising n_max increases mean accepted length (2.86 -> 3.50) but
+   loses throughput monotonically, because the verify batch widens faster than extraction grows. Same shape
+   as the MTP head's n_max knee, but here there is no gain at all above the default.
+
+2. **n_max >= 5 does not preserve the output.** `2fe11002` is this project's recorded baseline output md5
+   (276 chars at n_predict=64 on prompt-short16); n_max 3 and 4 reproduce it, n_max 5/6/8 produce
+   `e328a405` instead. So high-n_max DFlash2 is a *different* generation, not merely a slower one. This is
+   a correctness caveat, not a performance one - recorded whether or not it is ever used.
+
+## Final position on DFlash2
+
+    deliverable MTP (shortlist + fused gather)   36.65-36.78 t/s   <- ships
+    DFlash2 (upstream, default n_max=3)          33.41     t/s
+    upstream MTP (same build as DFlash2)         31.96     t/s
+
+**DFlash2 works, is lossless at its default setting, and beats MTP by +4.5% on an identical build - but it
+is not a route to 40 tok/s and does not displace the deliverable.** Its round is 85.6 ms against the
+deliverable's ~66.5 ms; reaching 40 at that round would need mean_len 3.42 versus the measured 2.86 (+20%),
+and the n_max sweep shows that is not available from tuning.
+
+The one untested lever left is the **draft quant**: 2.06 GB of Q8_0 means ~10 ms of weights read per round
+against the MTP head's 5.3 ms, which is precisely where DFlash2's larger round comes from. Smaller quants
+of the same speculator are published (`HermiHg/...-Q2_K_S-MIX-GGUF`, `Akicou/...`). That would cut the draft
+term directly - but it is a fresh download and a fresh measurement, and the ceiling it could buy is
+33.41 -> ~40 only if the draft cost halves with no acceptance loss, which is an assumption, not a result.

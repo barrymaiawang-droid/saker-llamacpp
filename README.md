@@ -90,30 +90,50 @@ file is z-lab's speculator in a **different format built for the vLLM stack** (`
 Using it would mean implementing a new arch in llama.cpp (different topology, not a rename) or running
 the speculator on vLLM. Neither is a configuration change.
 
-## DFlash2: the port target is identified, the port is not done
+## DFlash2: found, loaded, measured — and it does not displace the deliverable
 
-Upstream **has** DFlash2 support — `b10f9ca58  spec : add DFlash2 support (local convolution +
-candidate selector) (#27342) (#27816)`, with 20 references to the DFlash2 tensor names
-(`attn_conv`, `ffn_conv`) in upstream `src/models/dflash.cpp`. Note it is **not a new arch** — the string
-stays `dflash` and the DFlash2 path lives inside `dflash.cpp`, which is exactly why the GGUF declared
-`architecture = dflash` and still failed against this fork's older DFlash1 implementation.
+**There is a proper DFlash2 draft on HuggingFace, and it was the file already on disk.** The blocker was
+never the model: this fork's `src/models/dflash.cpp` implements **DFlash1** (the DeepSeek dspark layout —
+`attn_sinks`, `markov_w1/w2`, `hc_head_*`, the 81-tensor set). The Qwen3.8-27B speculator is the **DFlash2**
+layout (58 tensors). Upstream added DFlash2 in `b10f9ca58` ("spec : add DFlash2 support (local convolution +
+candidate selector)", PR #27342 / #27816), and it is **not a new arch** — the string stays `dflash` and the
+DFlash2 path lives inside `dflash.cpp`.
 
-The port was **prepared but not completed** — the tree is ready and the upstream remote is fetched:
+A cherry-pick onto this fork applied but **did not compile** (`ggml_rope_set_offset` undeclared), because
+that helper came from a *different* upstream commit (`fe8156f78`, PR #27120) and the fork's rope op is one
+field short (`params[15]`) with **backends that ignore `n_offs` entirely**. Finishing it would have meant
+hand-porting rope kernels into CPU *and* Vulkan in a tree already carrying the Saker Vulkan patches. So
+upstream/master (b11731) was built directly — it has DFlash2, `n_offs`, kernel support in both backends,
+and MTP, so both arms run on the **same build**.
 
-    cd /home/hycris/llama.cpp-dflash2          # branch saker-dflash2 @ f65d47b8a, Saker patches included
-    git cherry-pick b10f9ca58                  # + a11f57ba9 (output head sharing), cc231cb0d (NVFP4 scales)
-    cmake --build build --target llama-server llama-bench -j 10
-    # GATE 1: does it load?  (no "expected 81, got 58")
-    llama-server -m <IQ2_S target> -md <DFlash2 gguf> -ngl 99 -c 4096 --spec-type draft-dflash
-    # GATE 2: measure vs the MTP arm (36.65-36.78 t/s, acceptance 0.77551)
+    ARM                            t/s     acc/round  mean_len   output md5
+    MTP (upstream, no shortlist)   31.96     0.760      2.52      2fe11002
+    DFlash2 (default n_max=3)      33.41     0.631      2.86      2fe11002
+    deliverable MTP (this repo)    36.65-36.78                              <- still ships
 
-Two attempts died before the fetch completed: one on a runaway `git fetch` that dumped 765,574 tokens into
-its context, the second on a provider quota (`429 / code 1310`, resets 2026-10-23).
+DFlash2 **works, is lossless at its default, and beats MTP by +4.5% on an identical build** — winning
+*despite lower acceptance* because its mean accepted length is 2.86 vs 2.52 (block_size=8, n_extract=5).
+But it sits **below the shipped deliverable**, because the deliverable's MTP carries two MTP-specific Saker
+patches (shortlist vocab pruning, fused gather-matvec lm_head) that cannot transfer — the shortlist prunes
+the target's own nextn head, which DFlash2 does not use.
 
-**Why it is worth finishing**: acceptance is the only lever that reaches 40 tok/s without touching the
-weight pass — A=2.46 → 37.0 (measured), A=2.70 → ~40.6, A=3.00 → ~45.1. The MTP head gives A=2.46. The
-counterweight is real (2.06 GB Q8_0 draft ≈ 10 ms of weights per pass vs the MTP head's 5.3 ms/round), so
-it must draft a block per pass to win — measure, do not assume.
+`n_max` sweep (its default 3 is already optimal, and high values **change the output**):
+
+    n_max   t/s     mean_len  output md5
+    3(*)   33.41     2.86     2fe11002   <- baseline preserved
+    4      25.22     3.15     2fe11002   <- baseline preserved
+    5      21.66     3.26     e328a405   <- DIVERGES
+    6      20.93     3.50     e328a405   <- DIVERGES
+    8      18.05     3.50     e328a405   <- DIVERGES
+
+**Verdict: DFlash2 is a real, working, lossless speculator, but it is not a route to 40 tok/s** — its round
+is 85.6 ms against the deliverable's ~66.5 ms, and reaching 40 there needs mean_len 3.42 vs the measured
+2.86. The one untested lever is the **draft quant** (2.06 GB of Q8_0 costs ~10 ms of weight reads per round
+against the MTP head's 5.3 ms) — smaller quants of the same speculator exist, but that is a fresh download
+and a fresh measurement, and the ceiling assumes a halved draft cost with no acceptance loss.
+
+## What is not solved
+
 
 ## What is not solved
 
