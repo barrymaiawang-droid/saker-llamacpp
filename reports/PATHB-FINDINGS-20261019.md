@@ -2480,3 +2480,83 @@ Two useful by-products:
     sign-fold dequant ALU         +0.45% on Vulkan (failed earlier)
     prefill >= 500                closed: correct ceiling 411-413
     plain >= 26                   excluded: 0.6% short of theoretical peak
+
+# DFlash2 draft cost MEASURED (was an estimate) - the free-draft claim holds
+
+The user pushed back on "DFlash2 cannot reach 40 even with a free draft", correctly: that rested on an
+*estimated* draft cost (2.05 GB / 195 GB/s = 10.5 ms) that was never measured. It is measured now.
+
+## Method - the draft is cleanly isolable by weight type
+
+The DFlash2 speculator is **Q8_0**; the target is a mixed IQ2/IQ3/IQ4/Q2_K/Q6_K quant with **no q8_0
+tensors at all**. So every q8_0 op in a perf-logger trace of the DFlash2 arm belongs to the draft.
+Verified: **the MTP run shows 0.0 ms of q8_0** - the isolation is exact, not heuristic.
+
+    DFLASH2 total 2468.2 ms / 55573 calls   |   MTP total 2406.2 ms / 54347 calls
+
+    DFlash2 GPU time by weight type:
+      iq3_xxs  356.0 (14.4%)   iq2_s   305.0 (12.4%)   iq2_xxs 285.3 (11.6%)
+      iq3_s    272.6 (11.0%)   ?       254.8 (10.3%)   q8_0    223.6 ( 9.1%)
+      iq2_xs   194.6 ( 7.9%)   q2_K    176.5 ( 7.2%)   iq4_xs  168.5 ( 6.8%)
+      iq1_m     65.2 ( 2.6%)   q4_K     34.9 ( 1.4%)
+
+    *** DRAFT (q8_0) = 223.6 ms total = 10.0 ms/round ***
+
+## Verdict: the claim HOLDS
+
+    round 85.6 ms at 2.86 tok/round; 40 t/s needs round <= 71.5 ms (save 14.1 ms)
+    measured draft cost = 10.0 ms/round  <  14.1 ms
+    free draft -> 85.6 - 10.0 = 75.6 ms -> 2.86/0.0756 = 37.8 t/s     still below 40
+
+The original estimate (10.5 ms) was accurate to 5%, so the conclusion was right - but it was an inference,
+and it is now a measurement. **DFlash2 remains closed as a route to 40.**
+
+## Two corrections to my own DFlash2 description
+
+1. **DFlash2's verify runs at n=4, not n=8.** I had inferred a block-of-8 verify from the speculator's
+   self-reported `block_size=8, n_extract=5`. The traces show every target matvec at `n=4`. So its verify
+   is 33% wider than the MTP arm's n=3, which is part of why its per-round GPU cost is higher.
+2. **Its lm_head is inefficient at n=4.** `MUL_MAT_VEC iq4_xs m=248320 n=4 k=5120` costs 125.5 ms for
+   715 MB of weights = **125 GB/s**, against **227 GB/s** for the same op at n=3 in the MTP arm. A 45%
+   shortfall, DFlash2-specific; worth ~2.5 ms/round if it were at bandwidth. It does not change the verdict,
+   but it means the n=4 matvec path is not at bandwidth in general.
+
+## Also visible: DFlash2 spends more GPU per round
+
+2468.2 ms over ~22.4 rounds = 110 ms/round, against MTP's 2406.2 ms over ~25.4 rounds = 95 ms/round. So
+DFlash2's larger per-round cost is not only the draft - its wider verify costs more too.
+
+# DFlash2 n_max swept 1..8 - COMPLETE. The default (3) is optimal and the ceiling is bounded.
+
+The last untested dimension was n_max *below* the default 3. Now swept:
+
+    n_max   t/s (2 reps)      acceptance            note
+    1       27.47  27.52      0.879 (29/33)         highest acceptance, slowest
+    2       32.84  32.84      0.740 (37/50)         perfectly reproducible
+    3(*)    33.44  36.85      0.631 / 0.729         default; fastest; 10% spread
+    4       25.22   (1 rep)   0.566
+    5       21.66   (1 rep)   0.453
+    6       20.93   (1 rep)   0.417
+    8       18.05   (1 rep)   0.360
+    (*) default
+
+**n_max=3 (the default) is optimal, confirmed across the full range.** The shape is informative: acceptance
+is *highest* at n_max=1 (0.879) yet throughput is lowest (27.5), because the verify width dominates. Note
+n_max=2 is bit-reproducible (32.84 twice, identical acceptance) while n_max=3 is the configuration that
+shows the 10% spread - so the non-reproducibility is specific to that operating point, not general.
+
+## DFlash2 ceiling, now bounded by arithmetic rather than estimate
+
+    measured draft cost                 10.0 ms/round
+    free draft -> round 75.6 ms       -> 37.8 t/s     <- absolute ceiling, below the 40 target
+    a Q4 draft (~5 ms) -> round 80.6  -> 35.5 t/s     <- below the shipped deliverable (36.65-36.78)
+
+**Even a zero-cost draft cannot get DFlash2 to 40.** No remaining DFlash2 dimension can change the verdict:
+n_max is swept, the draft cost is measured, and the draft quant only moves a term that is already too small
+to close a 14.1 ms gap.
+
+## Method note / error
+
+The `mean_len` column printed by the n_max script used a wrong formula
+(`predicted_n / (draft_n / draft_n_accepted)`), producing nonsense (56.24, 47.36, 40.37). The t/s and
+acceptance figures are correct; mean_len should be read from the server's `print_timing` line instead.

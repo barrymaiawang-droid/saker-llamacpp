@@ -190,6 +190,31 @@ the positives:
 | prefill ≥ 500 | closed — correct ceiling 411-413 t/s |
 | plain ≥ 26 | excluded — 0.6% short of theoretical peak bandwidth |
 
+### DFlash2's ceiling, measured rather than inferred
+
+The claim "DFlash2 cannot reach 40 even with a free draft" originally rested on an *estimated* draft cost.
+It is now measured. The isolation is exact: the speculator is **Q8_0** and the target is a mixed
+IQ2/IQ3/IQ4/Q2_K/Q6_K quant with **no q8_0 tensors at all**, so every q8_0 op in a perf-logger trace of the
+DFlash2 arm is the draft — verified by the MTP arm showing **0.0 ms** of q8_0.
+
+```
+DFLASH2 total 2468.2 ms / 55573 calls   |   MTP total 2406.2 ms / 54347 calls
+DFlash2 by weight type: iq3_xxs 356.0 · iq2_s 305.0 · iq2_xxs 285.3 · iq3_s 272.6
+                        · ? 254.8 · q8_0 223.6 (9.1%) · iq2_xs 194.6 · q2_K 176.5 · iq4_xs 168.5
+
+*** DRAFT (q8_0) = 223.6 ms total = 10.0 ms/round ***
+free draft -> round 75.6 ms -> 37.8 t/s    <- absolute ceiling, below 40
+Q4 draft (~5 ms) -> round 80.6 ms -> 35.5 t/s   <- below the shipped deliverable
+```
+
+The `n_max` sweep is now complete across **1–8** (1→27.47, 2→32.84, **3→33.44/36.85**, 4→25.22, 5→21.66,
+6→20.93, 8→18.05): the default 3 is optimal, and acceptance is *highest* at n_max=1 (0.879) yet throughput
+is lowest — the verify width dominates.
+
+**So no remaining DFlash2 dimension can change the verdict.** Two of my own descriptions were also wrong and
+are corrected: its verify runs at **n=4** (not the n=8 I inferred from `block_size=8`), and its lm_head at
+n=4 achieves only **125 GB/s** against **227 GB/s** at n=3.
+
 ### The DMMV falsification, as an example of how these were settled
 
 The per-op timeline showed matvecs at 66% of GPU time. The workgroup heuristic that picks
