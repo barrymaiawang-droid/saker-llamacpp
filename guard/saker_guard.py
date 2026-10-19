@@ -396,6 +396,11 @@ def safe_to_compact(original, result):
 
 CHANNELS = ("reasoning_content", "content")
 
+# A wordless unit (a run of the same punctuation) must repeat this far before it is treated as a
+# loop rather than as formatting. Markdown rules and table separators are tens of characters;
+# degenerate runs are hundreds or thousands.
+WORDLESS_MIN_CHARS = 512
+
 
 def reconcile(result, before):
     """Collapse an echoed assistant message.
@@ -696,10 +701,21 @@ def detect_loop(text: str, window: int = 4096, min_repeats: int = 4, min_chars: 
     # A period can only repeat min_repeats times if it is at most len(tail)/min_repeats long.
     for period in range(1, min(1024, len(tail) // min_repeats) + 1):
         repeats = max(min_repeats, (min_chars + period - 1) // period)
-        if period * repeats > len(tail):
-            continue
         unit = tail[-period:]
         if not re.search(r"\w", unit):
+            if not unit.strip():
+                # Pure whitespace is never treated as a loop: it carries no content, so collapsing it
+                # buys nothing and would inject a recovery for no reason. KNOWN GAP: a model stuck
+                # emitting only blank lines is therefore not caught.
+                continue
+            # A run of identical NON-WHITESPACE punctuation is usually FORMATTING - a markdown rule, a
+            # table separator, a banner - which is legitimate and must never be cut. It only becomes
+            # degenerate when it runs very long: a model emitting thousands of "/" or "-" is looping.
+            # (Reported live: a thinking block that was one enormous run of "/".) So a wordless unit
+            # is held to a much longer run before it counts as a loop. 80 dashes is a separator;
+            # 512 identical characters is not.
+            repeats = max(repeats, (WORDLESS_MIN_CHARS + period - 1) // period)
+        if period * repeats > len(tail):
             continue
         if tail[-period * repeats:] == unit * repeats:
             start = len(text) - period * repeats

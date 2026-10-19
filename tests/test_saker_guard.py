@@ -152,11 +152,25 @@ class DetectionTests(unittest.TestCase):
 
 
     def test_legitimate_formatting_and_numbered_progress_do_not_trigger(self):
-        self.assertIsNone(detect_loop("-" * 2048))
+        # Formatting separators are SHORT. A long run of the same character is not formatting, it is
+        # a degenerate loop - see the test below, which asserts the opposite for thousands of chars.
+        self.assertIsNone(detect_loop("-" * 80))          # markdown rule / table separator
+        self.assertIsNone(detect_loop("=" * 40))
+        self.assertIsNone(detect_loop(" " * 1000))
         self.assertIsNone(detect_loop((" " + chr(10)) * 1000))
         text = "\n".join(f"The measurement for sample {i} contains a distinct verified result that we must preserve in full."
                          for i in range(1, 10))
         self.assertIsNone(detect_loop(text))
+
+    def test_a_long_run_of_identical_punctuation_is_a_loop(self):
+        # Reported live: a thinking block that was one enormous run of "/". The original detector
+        # skipped every unit with no word character, so this was invisible no matter how long it got.
+        self.assertIsNotNone(detect_loop("/" * 1400))
+        self.assertIsNotNone(detect_loop("/" * 8000))
+        self.assertIsNotNone(detect_loop("-" * 2048))
+        loop = detect_loop("/" * 1400)
+        self.assertEqual(loop.period, 1)
+        self.assertEqual(compact_exact("/" * 1400, loop), "/")
 
 
 class ProxyTests(unittest.TestCase):
