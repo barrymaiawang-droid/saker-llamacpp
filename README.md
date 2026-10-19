@@ -38,6 +38,19 @@ gather removes the F32 `[5120×K]` intermediate by reusing llama.cpp's existing 
 with the vocab rows viewed as one 1-column "expert matrix" each. The retune corrects a warptile that
 was left at generic-AMD dGPU values for a 40-CU APU.
 
+## Loop guard and thinking visibility
+
+`guard/saker_guard.py` is a buffered reverse proxy in front of `llama-server` that
+stops repetitive generation, deletes or compacts the repetitive tail, and continues the
+same answer; it also provides the show/hide-thinking switch. See
+[docs/LOOP-GUARD.md](docs/LOOP-GUARD.md). It does not modify the engine, and it is
+independent of the performance work below.
+
+```bash
+python3 guard/saker_guard.py --port 18160 --upstream http://127.0.0.1:8081 --hide-thinking
+python3 -m unittest discover -s tests -v   # 14 tests
+```
+
 ## Usage
 
 ```bash

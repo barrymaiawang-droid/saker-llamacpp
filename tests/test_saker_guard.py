@@ -1,0 +1,285 @@
+import contextlib
+import json
+import select
+import socket
+import threading
+import time
+import unittest
+import urllib.error
+import urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+from guard.saker_guard import Config, compact_exact, detect_loop, make_server, parse_cli
+
+
+@contextlib.contextmanager
+def running(server):
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def fake_upstream(scenarios):
+    requests = []
+
+    class FakeHandler(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_POST(self):
+            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            requests.append(body)
+            scenario = scenarios[min(len(requests) - 1, len(scenarios) - 1)]
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.end_headers()
+            try:
+                for delta in scenario["deltas"]:
+                    frame = {"id": "chatcmpl-test", "created": 123, "model": "swift",
+                             "choices": [{"index": 0, "delta": delta, "finish_reason": None}]}
+                    self.wfile.write(b"data: " + json.dumps(frame).encode() + b"\n\n")
+                    self.wfile.flush()
+                if scenario.get("started"):
+                    scenario["started"].set()
+                if "cancelled" in scenario:
+                    ready, _, _ = select.select([self.connection], [], [], 3)
+                    if ready and self.connection.recv(1, socket.MSG_PEEK) == b"":
+                        scenario["cancelled"].set()
+                    return
+                if scenario.get("omit_done"):
+                    return
+                frame = {"choices": [{"index": 0, "delta": {},
+                                      "finish_reason": scenario.get("finish", "stop")}],
+                         "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30}}
+                self.wfile.write(b"data: " + json.dumps(frame).encode() + b"\n\ndata: [DONE]\n\n")
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+
+    return ThreadingHTTPServer(("127.0.0.1", 0), FakeHandler), requests
+
+
+def chat(url, **overrides):
+    body = {"messages": [{"role": "user", "content": "Explain the result."}], "max_tokens": 256}
+    body.update(overrides)
+    req = urllib.request.Request(url + "/v1/chat/completions", json.dumps(body).encode(),
+                                 {"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as response:
+            return response.status, response.read(), response.headers
+    except urllib.error.HTTPError as error:
+        with error:
+            return error.code, error.read(), error.headers
+
+
+class ConfigurationTests(unittest.TestCase):
+    def test_show_hide_switch_is_independent_of_reasoning(self):
+        _, hidden = parse_cli(["--hide-thinking"])
+        _, shown = parse_cli(["--show-thinking"])
+        self.assertTrue(hidden.hide_thinking)
+        self.assertFalse(shown.hide_thinking)
+        address, _ = parse_cli(["--host", "127.0.0.1", "--port", "18814"])
+        self.assertEqual(address, ("127.0.0.1", 18814))
+
+
+class DetectionTests(unittest.TestCase):
+    def test_exact_loop_compacts_without_losing_clean_prefix(self):
+        prefix = "The result is 281. Next I will explain why.\n"
+        unit = "Hmm. Let me consider that again. "
+        text = prefix + unit * 12
+        loop = detect_loop(text)
+        self.assertIsNotNone(loop)
+        self.assertEqual(loop.kind, "exact")
+        self.assertEqual(compact_exact(text, loop), prefix + unit)
+
+
+    def test_legitimate_formatting_and_numbered_progress_do_not_trigger(self):
+        self.assertIsNone(detect_loop("-" * 2048))
+        self.assertIsNone(detect_loop((" " + chr(10)) * 1000))
+        text = "\n".join(f"The measurement for sample {i} contains a distinct verified result that we must preserve in full."
+                         for i in range(1, 10))
+        self.assertIsNone(detect_loop(text))
+
+
+class ProxyTests(unittest.TestCase):
+    def test_two_recoveries_then_an_explicit_error_without_leaking_failed_output(self):
+        upstream, requests = fake_upstream([{"deltas": [{"reasoning_content": "Let me reconsider this again. " * 12}]}])
+        with running(upstream) as upstream_url:
+            with running(make_server(("127.0.0.1", 0), Config(upstream=upstream_url))) as url:
+                status, raw, _ = chat(url, stream=True)
+        self.assertEqual(status, 502)
+        self.assertEqual(json.loads(raw)["error"]["code"], "loop_recovery_exhausted")
+        self.assertEqual(len(requests), 3)
+        self.assertNotIn(b"Let me reconsider", raw)
+
+    def test_structured_output_is_never_compacted(self):
+        for extra, prefix in [({"response_format": {"type": "json_object"}}, ""), ({}, "```python\n")]:
+            with self.subTest(extra=extra, prefix=prefix):
+                upstream, requests = fake_upstream([{"deltas": [{"content": prefix + "same code statement; " * 20}]}])
+                with running(upstream) as upstream_url:
+                    with running(make_server(("127.0.0.1", 0), Config(upstream=upstream_url))) as url:
+                        status, raw, _ = chat(url, **extra)
+                self.assertEqual(status, 502)
+                self.assertEqual(json.loads(raw)["error"]["code"], "unsafe_compaction")
+                self.assertEqual(len(requests), 1)
+
+    def test_loop_cancellation_closes_upstream_before_continuing(self):
+        cancelled = threading.Event()
+        upstream, requests = fake_upstream([
+            {"deltas": [{"reasoning_content": "Let me reconsider this again. " * 12}], "cancelled": cancelled},
+            {"deltas": [{"content": "Recovered answer."}]},
+        ])
+        with running(upstream) as upstream_url:
+            with running(make_server(("127.0.0.1", 0), Config(upstream=upstream_url))) as url:
+                status, raw, _ = chat(url)
+                self.assertTrue(cancelled.wait(1), "abandoned upstream socket was not closed")
+        self.assertEqual(status, 200, raw)
+        self.assertEqual(len(requests), 2)
+
+    def test_unparsed_thinking_is_not_leaked_when_hidden(self):
+        upstream, _ = fake_upstream([{"deltas": [{"content": "<think>PRIVATE</think>The answer."}]}])
+        with running(upstream) as upstream_url:
+            with running(make_server(("127.0.0.1", 0), Config(upstream=upstream_url))) as url:
+                status, raw, _ = chat(url)
+        self.assertEqual(status, 502)
+        self.assertEqual(json.loads(raw)["error"]["code"], "unparsed_reasoning")
+        self.assertNotIn(b"PRIVATE", raw)
+
+    def test_deadline_cancels_an_idle_upstream(self):
+        cancelled = threading.Event()
+        upstream, _ = fake_upstream([{"deltas": [{"role": "assistant"}], "cancelled": cancelled}])
+        with running(upstream) as upstream_url:
+            config = Config(upstream=upstream_url, timeout=0.25, idle_timeout=10)
+            with running(make_server(("127.0.0.1", 0), config)) as url:
+                start = time.monotonic()
+                status, raw, _ = chat(url)
+                elapsed = time.monotonic() - start
+                self.assertLess(elapsed, 1.5)
+                self.assertTrue(cancelled.wait(1))
+        self.assertEqual(status, 504, raw)
+        self.assertEqual(json.loads(raw)["error"]["code"], "deadline_exceeded")
+
+    def test_client_disconnect_cancels_idle_generation(self):
+        started, cancelled = threading.Event(), threading.Event()
+        upstream, _ = fake_upstream([{"deltas": [{"role": "assistant"}], "started": started, "cancelled": cancelled}])
+        with running(upstream) as upstream_url:
+            server = make_server(("127.0.0.1", 0), Config(upstream=upstream_url))
+            with running(server):
+                client = socket.create_connection(("127.0.0.1", server.server_port))
+                payload = json.dumps({"messages": [{"role": "user", "content": "hi"}]}).encode()
+                client.sendall(b"POST /v1/chat/completions HTTP/1.1\r\nHost: localhost\r\nContent-Length: "
+                               + str(len(payload)).encode() + b"\r\n\r\n" + payload)
+                self.assertTrue(started.wait(1))
+                client.close()
+                self.assertTrue(cancelled.wait(1), "generation continued after the caller disconnected")
+
+    def test_incomplete_stream_is_not_reported_as_success(self):
+        upstream, _ = fake_upstream([{"deltas": [{"content": "Partial answer"}], "omit_done": True}])
+        with running(upstream) as upstream_url:
+            with running(make_server(("127.0.0.1", 0), Config(upstream=upstream_url))) as url:
+                status, raw, _ = chat(url)
+        self.assertEqual(status, 502)
+        self.assertEqual(json.loads(raw)["error"]["code"], "incomplete_stream")
+
+    def test_exact_loop_is_compacted_and_continued_without_a_summary_call(self):
+        prefix = "We have established that the answer is 281.\n"
+        unit = "Let me consider the next step again. "
+        suffix = "Here is the proof."
+        upstream, requests = fake_upstream([
+            {"deltas": [{"content": prefix}, {"content": unit * 12}]},
+            {"deltas": [{"content": suffix}]},
+        ])
+        with running(upstream) as upstream_url:
+            with running(make_server(("127.0.0.1", 0), Config(upstream=upstream_url))) as url:
+                status, raw, _ = chat(url)
+        self.assertEqual(status, 200, raw)
+        result = json.loads(raw)
+        self.assertEqual(result["choices"][0]["message"]["content"], prefix + unit + suffix)
+        self.assertEqual(result["saker_guard"]["recoveries"], 1)
+        self.assertEqual(len(requests), 2)
+        continuation = requests[1]
+        self.assertEqual(continuation["messages"][0], requests[0]["messages"][0])
+        self.assertEqual(continuation["messages"][-1]["content"], prefix + unit)
+        self.assertEqual(continuation["continue_final_message"], "content")
+        self.assertFalse(continuation["add_generation_prompt"])
+        self.assertFalse(continuation["cache_prompt"])
+
+    def test_ramblings_use_one_bounded_summary_then_continue_from_cleaned_reasoning(self):
+        prefix = "The computed count is 281.\n"
+        tail = "\n".join(
+            f"Let me reconsider the same argument {word} before deciding whether we should proceed with the calculation once more."
+            for word in ["carefully", "closely", "deeply", "thoroughly", "patiently", "slowly"]
+        )
+        summary = "The count is established; the remaining task is to explain the proof."
+        upstream, requests = fake_upstream([
+            {"deltas": [{"reasoning_content": prefix + tail}]},
+            {"deltas": [{"content": summary}]},
+            {"deltas": [{"reasoning_content": "Now use the recurrence."}, {"content": "The answer is 281."}]},
+        ])
+        with running(upstream) as upstream_url:
+            with running(make_server(("127.0.0.1", 0), Config(upstream=upstream_url, hide_thinking=False))) as url:
+                status, raw, _ = chat(url)
+        self.assertEqual(status, 200, raw)
+        message = json.loads(raw)["choices"][0]["message"]
+        self.assertTrue(message["reasoning_content"].startswith(prefix))
+        self.assertIn(summary, message["reasoning_content"])
+        self.assertNotIn("reconsider", message["reasoning_content"])
+        self.assertEqual(message["content"], "The answer is 281.")
+        self.assertEqual(len(requests), 3)
+        summarizer = requests[1]
+        self.assertEqual(summarizer["max_tokens"], 192)
+        self.assertEqual(summarizer["reasoning_effort"], "none")
+        self.assertNotIn("tools", summarizer)
+        self.assertNotIn(prefix.strip(), summarizer["messages"][-1]["content"])
+        self.assertEqual(requests[2]["continue_final_message"], "reasoning_content")
+
+    def test_buffered_stream_respects_visibility_and_preserves_tool_calls(self):
+        for hide in (True, False):
+            with self.subTest(hide=hide):
+                upstream, _ = fake_upstream([{"deltas": [
+                    {"reasoning_content": "Private reasoning."},
+                    {"tool_calls": [{"index": 0, "id": "call_1", "type": "function",
+                                      "function": {"name": "lookup", "arguments": '{"q":'}}]},
+                    {"tool_calls": [{"index": 0, "function": {"arguments": '"test"}'}}]},
+                ], "finish": "tool_calls"}])
+                with running(upstream) as upstream_url:
+                    with running(make_server(("127.0.0.1", 0), Config(upstream=upstream_url, hide_thinking=hide))) as url:
+                        status, raw, headers = chat(url, stream=True, stream_options={"include_usage": True})
+                self.assertEqual(status, 200, raw)
+                self.assertIn("text/event-stream", headers["Content-Type"])
+                self.assertEqual(raw.count(b"data: [DONE]"), 1)
+                frames = [json.loads(line[6:]) for line in raw.decode().splitlines()
+                          if line.startswith("data: ") and line != "data: [DONE]"]
+                deltas = [c["delta"] for f in frames for c in f["choices"]]
+                tools = [d["tool_calls"][0] for d in deltas if "tool_calls" in d]
+                self.assertEqual(tools[0]["function"], {"name": "lookup", "arguments": '{"q":"test"}'})
+                self.assertEqual(b"Private reasoning" in raw, not hide)
+                self.assertEqual(frames[-1]["usage"]["completion_tokens"], 20)
+
+    def test_hide_thinking_preserves_answer_and_does_not_disable_reasoning(self):
+        upstream, requests = fake_upstream([{"deltas": [
+            {"role": "assistant", "reasoning_content": "Private reasoning."},
+            {"content": "The answer is 281."},
+        ]}])
+        with running(upstream) as upstream_url:
+            server = make_server(("127.0.0.1", 0), Config(upstream=upstream_url, hide_thinking=True))
+            with running(server) as url:
+                status, raw, _ = chat(url, reasoning_effort="high", temperature=0)
+        self.assertEqual(status, 200, raw)
+        message = json.loads(raw)["choices"][0]["message"]
+        self.assertEqual(message["content"], "The answer is 281.")
+        self.assertNotIn("reasoning_content", message)
+        self.assertNotIn(b"Private reasoning", raw)
+        self.assertEqual(requests[0]["reasoning_effort"], "high")
+        self.assertEqual(requests[0]["temperature"], 0)
+        self.assertEqual(requests[0]["reasoning_format"], "deepseek")
+        self.assertTrue(requests[0]["stream"])
+
+
+if __name__ == "__main__":
+    unittest.main()
