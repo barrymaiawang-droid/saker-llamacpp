@@ -128,7 +128,7 @@ refusal, echoed-prefix collapsing, the budget-exhausted trap, and the no-leak pa
 
 ### Live verification against the real engine (2026-10-19)
 
-Run on node A under `gpu-lock.sh` with the shipped build, the IQ2_S-mtp target and
+Run on the gfx1151 box under a GPU lock with the shipped build, the IQ2_S-mtp target and
 `--spec-type draft-mtp --spec-draft-n-max 2`. Guard bytes matched local before the run
 (`md5 b3205c1233`). **All live checks passed.**
 
