@@ -45,8 +45,17 @@ Native MTP already helps; three changes make it cheaper. The MTP draft head scor
 head, which is 248,320 rows wide, for a handful of candidate tokens per step. That is the cost.
 
 - **Shortlist** (`SAKER_SHORTLIST=3584`) — score only the target's top-K candidate rows instead of
-  all 248,320. K=3584 is the knee: acceptance matches the full head there, K=3072 loses acceptance,
-  K=4096 buys nothing for more traffic.
+  all 248,320. K=3584 was the throughput knee in the original sweep: K=3072 lost acceptance and
+  K=4096 bought nothing for more traffic.
+
+  **Correction, measured 2026-10-20: the shortlist is NOT output-neutral.** With it active the
+  generated text changed on **5 of 6** runs at temp 0 versus the same build without it — and
+  without it that build is byte-identical to unpatched llama.cpp, matching even rep-for-rep.
+  Acceptance did not match the full head on every prompt either (0.71486 vs 0.73151 measured).
+  It buys ~2.7% decode. Draft tokens are supposed to be proposals with verification deciding the
+  emitted token, so a narrower draft should cost acceptance and *not* change output; the mechanism
+  by which it does is not yet explained. Check any configuration with
+  `tools/verify_bit_exact.py` before calling it lossless.
 - **Fused gather** — the shortlist's `ggml_get_rows` emitted an F32 `[5120 × K]` intermediate
   (~146 MB per draft at K=3584) while the gathered weights are only ~9.7 MB. Reusing
   `ggml_mul_mat_id` with the head viewed as one 1-column "expert matrix" per vocab row removes the
