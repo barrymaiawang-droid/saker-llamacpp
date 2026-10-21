@@ -1,0 +1,1189 @@
+diff --git a/ggml/src/ggml-cpu/ops.cpp b/ggml/src/ggml-cpu/ops.cpp
+index 001e1ae..e7b78df 100644
+--- a/ggml/src/ggml-cpu/ops.cpp
++++ b/ggml/src/ggml-cpu/ops.cpp
+@@ -4905,7 +4905,6 @@ static void ggml_compute_forward_get_rows_f16(
+ 
+     assert(ne0  == nc);
+     assert(ne02 == ne11);
+-    assert(nb00 == sizeof(ggml_fp16_t));
+     assert(ggml_nrows(dst) == nr);
+ 
+     const int ith = params->ith;
+@@ -4926,9 +4925,15 @@ static void ggml_compute_forward_get_rows_f16(
+ 
+         GGML_ASSERT(i01 >= 0 && i01 < ne01);
+ 
+-        ggml_cpu_fp16_to_fp32(
+-            (const ggml_fp16_t*) ((char *) src0->data + i01*nb01 + i11*nb02 + i12*nb03),
+-                       (float *) ((char *)  dst->data + i10*nb1  + i11*nb2  + i12*nb3), nc);
++        const char * row = (const char *) src0->data + i01*nb01 + i11*nb02 + i12*nb03;
++        float * out = (float *) ((char *) dst->data + i10*nb1 + i11*nb2 + i12*nb3);
++        if (nb00 == sizeof(ggml_fp16_t)) {
++            ggml_cpu_fp16_to_fp32((const ggml_fp16_t *) row, out, nc);
++        } else {
++            for (int64_t j = 0; j < nc; ++j) {
++                out[j] = GGML_FP16_TO_FP32(*(const ggml_fp16_t *) (row + j*nb00));
++            }
++        }
+     }
+ }
+ 
+@@ -4987,7 +4992,6 @@ static void ggml_compute_forward_get_rows_f32(
+ 
+     assert(ne0  == nc);
+     assert(ne02 == ne11);
+-    assert(nb00 == sizeof(float));
+     assert(ggml_nrows(dst) == nr);
+ 
+     const int ith = params->ith;
+@@ -5008,9 +5012,15 @@ static void ggml_compute_forward_get_rows_f32(
+ 
+         GGML_ASSERT(i01 >= 0 && i01 < ne01);
+ 
+-        ggml_vec_cpy_f32(nc,
+-                (float *) ((char *)  dst->data + i10*nb1  + i11*nb2  + i12*nb3),
+-                (float *) ((char *) src0->data + i01*nb01 + i11*nb02 + i12*nb03));
++        const char * row = (const char *) src0->data + i01*nb01 + i11*nb02 + i12*nb03;
++        float * out = (float *) ((char *) dst->data + i10*nb1 + i11*nb2 + i12*nb3);
++        if (nb00 == sizeof(float)) {
++            ggml_vec_cpy_f32(nc, out, (const float *) row);
++        } else {
++            for (int64_t j = 0; j < nc; ++j) {
++                out[j] = *(const float *) (row + j*nb00);
++            }
++        }
+     }
+ }
+ 
+diff --git a/ggml/src/ggml-vulkan/vulkan-shaders/get_rows.comp b/ggml/src/ggml-vulkan/vulkan-shaders/get_rows.comp
+index e88bdd0..ef94f47 100644
+--- a/ggml/src/ggml-vulkan/vulkan-shaders/get_rows.comp
++++ b/ggml/src/ggml-vulkan/vulkan-shaders/get_rows.comp
+@@ -26,9 +26,9 @@ void main() {
+             const uint d_offset = get_doffset() + i10*p.nb21 + i11*p.nb22 + i12*p.nb23;
+ 
+ #if defined(DATA_A_BF16)
+-            TEMP_TYPE v = TEMP_TYPE(bf16_to_fp32(data_a[a_offset + i00]));
++            TEMP_TYPE v = TEMP_TYPE(bf16_to_fp32(data_a[a_offset + i00*p.nb00]));
+ #else
+-            TEMP_TYPE v = TEMP_TYPE(data_a[a_offset + i00]);
++            TEMP_TYPE v = TEMP_TYPE(data_a[a_offset + i00*p.nb00]);
+ #endif
+ #ifndef OPTIMIZATION_ERROR_WORKAROUND
+             data_d[d_offset + i00] = D_TYPE(v);
+diff --git a/src/llama-context.cpp b/src/llama-context.cpp
+index 81a5be8..4415778 100644
+--- a/src/llama-context.cpp
++++ b/src/llama-context.cpp
+@@ -7,6 +7,8 @@
+ #include "llama-batch.h"
+ #include "llama-io.h"
+ #include "llama-memory.h"
++#include "llama-kv-cache.h"
++#include "llama-saker-sparse.h"
+ #include "llama-mmap.h"
+ #include "llama-model.h"
+ #include "llama-ext.h"
+@@ -1383,6 +1385,9 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
+     }
+ 
+     const auto status = graph_compute(res->get_gf(), ubatch.n_tokens > 1);
++    if (res->saker_quest_input) {
++        res->saker_quest_input->mctx->saker_quest_complete(status == GGML_STATUS_SUCCESS);
++    }
+     if (status != GGML_STATUS_SUCCESS) {
+         LLAMA_LOG_ERROR("%s: failed to compute graph, compute status: %d\n", __func__, status);
+         ret = status;
+@@ -2372,6 +2377,15 @@ uint32_t llama_context::graph_max_nodes(uint32_t n_tokens) const {
+         }
+     }
+ 
++    const auto & sparse = saker_sparse_options();
++    if (model.arch == LLM_ARCH_QWEN35 && sparse.tokens > 0 && sparse.mode != saker_sparse_mode::representative) {
++        for (uint32_t il = 0; il < model.hparams.n_layer_all; ++il) {
++            if (!model.hparams.is_recr(il)) {
++                res += 128 * sparse.max_batch * model.hparams.n_head_kv(il);
++            }
++        }
++    }
++
+     uint32_t n_sampling_nodes = 0;
+     uint32_t n_sampling_nodes_max = 0;
+     for (const auto & [seq_id, sampler] : sampling.samplers) {
+diff --git a/src/llama-graph.cpp b/src/llama-graph.cpp
+index 046b086..b0c3a6c 100644
+--- a/src/llama-graph.cpp
++++ b/src/llama-graph.cpp
+@@ -473,16 +473,45 @@ bool llm_graph_input_attn_kv::use_saker_sparse(const llama_ubatch & ubatch) cons
+         return false;
+     }
+     const auto & config = saker_sparse_options();
+-    return cparams.flash_attn && cparams.causal_attn && ubatch.n_seqs_unq == 1 &&
+-           ubatch.n_tokens <= config.max_batch && self_kq_mask->ne[3] == 1 &&
++    const bool eligible = cparams.flash_attn && cparams.causal_attn && ubatch.n_seqs_unq == 1 &&
++           ubatch.n_tokens <= uint32_t(config.max_batch) && self_kq_mask->ne[3] == 1 &&
+            self_kq_mask->ne[0] > config.tokens && self_kq_mask->ne[0] % config.block == 0;
++    if (!eligible || config.mode != saker_sparse_mode::quest) { return eligible; }
++    if (!saker_quest_pages) { return false; }
++    // A visible prefix has at most one partial page. Fragmentation uses dense attention.
++    const auto & cells = mctx->get_cells(ubatch.seq_id[0][0]);
++    for (uint32_t t = 0; t < ubatch.n_tokens; ++t) {
++        bool ended = false;
++        bool any = false;
++        for (int64_t i = 0; i < self_kq_mask->ne[0]; ++i) {
++            bool visible = !cells.is_empty(i) && cells.seq_has(i, ubatch.seq_id[t][0]) && cells.pos_get(i) <= ubatch.pos[t];
++            if (visible && ubatch.is_pos_2d() && cells.pos_get(i) == ubatch.pos[t]) {
++                visible = !cells.ext_get(i).is_2d_gt(ubatch.pos[t + ubatch.n_tokens*2], ubatch.pos[t + ubatch.n_tokens]);
++            }
++            if (visible && ended) { return false; }
++            ended |= !visible;
++            any |= visible;
++        }
++        if (!any) { return false; }
++    }
++    return true;
++}
++
++bool llm_graph_input_attn_kv::can_reuse_saker(const llama_ubatch & ubatch) const {
++    if ((saker_bias != nullptr) != use_saker_sparse(ubatch)) { return false; }
++    const auto pages = mctx->saker_quest_pages();
++    return saker_quest_pages ? saker_quest_pages->ne[0] == int64_t(pages.size()) : pages.empty();
+ }
+ 
+ void llm_graph_input_attn_kv::set_saker_sparse(const llama_ubatch * ubatch, const llama_kv_cache_context * cache) {
+-    if (!saker_representatives || !saker_representatives->buffer) {
++    if (saker_quest_pages && saker_quest_pages->buffer) {
++        const auto pages = cache->saker_quest_pages();
++        GGML_ASSERT(pages.size() == size_t(saker_quest_pages->ne[0]));
++        ggml_backend_tensor_set(saker_quest_pages, pages.data(), 0, pages.size() * sizeof(int32_t));
++    }
++    if (!saker_bias || !saker_bias->buffer) {
+         return;
+     }
+-    GGML_ASSERT(ggml_backend_buffer_is_host(saker_representatives->buffer));
+     GGML_ASSERT(ggml_backend_buffer_is_host(saker_bias->buffer));
+     GGML_ASSERT(ggml_backend_buffer_is_host(self_kq_mask->buffer));
+     const auto & cells = cache->get_cells(ubatch->seq_id[0][0]);
+@@ -493,15 +522,15 @@ void llm_graph_input_attn_kv::set_saker_sparse(const llama_ubatch * ubatch, cons
+             positions[i] = cells.pos_get(i);
+         }
+     }
+-    for (int i = 0; i < ubatch->n_tokens; ++i) {
+-        auto * representatives = (int32_t *) ((char *) saker_representatives->data + i * saker_representatives->nb[1]);
++    for (uint32_t i = 0; i < ubatch->n_tokens; ++i) {
++        auto * representatives = saker_representatives ? (int32_t *) ((char *) saker_representatives->data + i * saker_representatives->nb[1]) : nullptr;
+         auto * bias = (float *) ((char *) saker_bias->data + i * saker_bias->nb[1]);
+         auto * mask = (ggml_fp16_t *) ((char *) self_kq_mask->data + i * self_kq_mask->nb[1]);
+         saker_sparse_fill_row(saker_sparse_options(), positions, mask, representatives, bias);
+     }
+     if (!saker_reported && std::getenv("SAKER_SPARSE_TRACE")) {
+-        std::fprintf(stderr, "saker-sparse: active queries=%u cache=%lld selected=%d\n",
+-                ubatch->n_tokens, (long long) n_kv, saker_sparse_options().tokens);
++        std::fprintf(stderr, "saker-sparse: active queries=%u cache=%lld selected=%d mode=%s\n",
++                ubatch->n_tokens, (long long) n_kv, saker_sparse_options().tokens, saker_sparse_name(saker_sparse_options().mode));
+         saker_reported = true;
+     }
+ }
+@@ -538,7 +567,7 @@ bool llm_graph_input_attn_kv::can_reuse(const llm_graph_params & params) {
+ 
+     res &= can_reuse_kq_mask(self_kq_mask, mctx, params.ubatch, params.cparams);
+ 
+-    res &= (saker_representatives != nullptr) == use_saker_sparse(params.ubatch);
++    res &= can_reuse_saker(params.ubatch);
+ 
+     return res;
+ }
+@@ -1150,7 +1179,7 @@ bool llm_graph_input_mem_hybrid::can_reuse(const llm_graph_params & params) {
+     res &= inp_rs->head == mctx->get_recr()->get_head();
+     res &= inp_rs->rs_z == mctx->get_recr()->get_rs_z();
+ 
+-    res &= (inp_attn->saker_representatives != nullptr) == inp_attn->use_saker_sparse(params.ubatch);
++    res &= inp_attn->can_reuse_saker(params.ubatch);
+ 
+     return res;
+ }
+@@ -1358,6 +1387,7 @@ void llm_graph_result::reset() {
+ 
+     inputs.clear();
+     fused_nodes.clear();
++    saker_quest_input = nullptr;
+ 
+     buf_compute_meta.resize(ggml_tensor_overhead()*max_nodes + ggml_graph_overhead_custom(max_nodes, false));
+ 
+@@ -2781,13 +2811,21 @@ static std::unique_ptr<llm_graph_input_attn_kv> build_attn_inp_kv_impl(
+     const auto & config = saker_sparse_options();
+     inp->saker_requested = saker_requested && config.tokens > 0 &&
+                           mctx_cur->type_k() == GGML_TYPE_F16 && mctx_cur->type_v() == GGML_TYPE_F16;
++    const auto pages = mctx_cur->saker_quest_pages();
++    if (!pages.empty()) {
++        inp->saker_quest_pages = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, pages.size());
++        ggml_set_input(inp->saker_quest_pages);
++        ggml_set_name(inp->saker_quest_pages, "saker_quest_update_pages");
++    }
+     if (inp->use_saker_sparse(ubatch)) {
+-        const int64_t n_blocks = mctx_cur->get_n_kv() / config.block;
+-        inp->saker_representatives = ggml_new_tensor_2d(ctx0, GGML_TYPE_I32, n_blocks, ubatch.n_tokens);
++        const int64_t n_blocks = mctx_cur->get_n_kv() / config.unit();
++        if (config.mode == saker_sparse_mode::representative) {
++            inp->saker_representatives = ggml_new_tensor_2d(ctx0, GGML_TYPE_I32, n_blocks, ubatch.n_tokens);
++            ggml_set_input(inp->saker_representatives);
++            ggml_set_name(inp->saker_representatives, "saker_sparse_representatives");
++        }
+         inp->saker_bias = ggml_new_tensor_2d(ctx0, GGML_TYPE_F32, n_blocks, ubatch.n_tokens);
+-        ggml_set_input(inp->saker_representatives);
+         ggml_set_input(inp->saker_bias);
+-        ggml_set_name(inp->saker_representatives, "saker_sparse_representatives");
+         ggml_set_name(inp->saker_bias, "saker_sparse_bias");
+     }
+ 
+@@ -2850,19 +2888,37 @@ ggml_tensor * llm_graph_context::build_attn(
+     ggml_tensor * k = mctx_cur->get_k(ctx0, il);
+     ggml_tensor * v = mctx_cur->get_v(ctx0, il);
+ 
++    if (inp->saker_quest_pages) {
++        mctx_cur->saker_quest_refresh(ctx0, gf, inp->saker_quest_pages, il);
++        res->saker_quest_input = inp;
++    }
++    const auto & config = saker_sparse_options();
++    int attention_index = 0;
++    if (inp->saker_bias && config.dense_layers > 0) {
++        for (int layer = 0; layer < il; ++layer) { attention_index += !hparams.is_recr(layer); }
++    }
+     ggml_tensor * cur = nullptr;
+-    if (inp->saker_representatives && kq_b == nullptr && sinks == nullptr && v_mla == nullptr) {
+-        const auto & config = saker_sparse_options();
++    if (inp->saker_bias && attention_index >= config.dense_layers && kq_b == nullptr && sinks == nullptr && v_mla == nullptr) {
++        const ggml_tensor * storage = k->view_src ? k->view_src : k;
++        const auto * backend_name = storage->buffer ? ggml_backend_buffer_name(storage->buffer) : "CPU";
++        const bool strided_rows = std::strstr(backend_name, "CPU") || std::strstr(backend_name, "Vulkan");
+         for (int i = 0; i < n_tokens; ++i) {
+-            auto selected = saker_sparse_select(ctx0, config, q, k, v, kq_mask,
+-                    inp->saker_representatives, inp->saker_bias, i);
+-            cb(selected.blocks, "saker_sparse_blocks", il);
+-            auto * out = build_attn_mha(selected.q, selected.k, selected.v, nullptr, selected.mask, nullptr, nullptr, kq_scale, il);
++            ggml_tensor * out = nullptr;
++            const int groups = config.mode == saker_sparse_mode::representative ? 1 : int(k->ne[1]);
++            for (int head = 0; head < groups; ++head) {
++                auto selected = config.mode == saker_sparse_mode::representative ?
++                        saker_sparse_select(ctx0, config, q, k, v, kq_mask, inp->saker_representatives, inp->saker_bias, i) :
++                        saker_sparse_select_head(ctx0, config, q, k, v, kq_mask, inp->saker_bias,
++                                mctx_cur->saker_quest_bound(il, false), mctx_cur->saker_quest_bound(il, true), i, head, strided_rows);
++                cb(selected.blocks, "saker_sparse_selection", il);
++                auto * group_out = build_attn_mha(selected.q, selected.k, selected.v, nullptr, selected.mask, nullptr, nullptr, kq_scale, il);
++                out = out ? ggml_concat(ctx0, out, group_out, 0) : group_out;
++            }
+             cur = cur ? ggml_concat(ctx0, cur, out, 1) : out;
+         }
+         if (std::getenv("SAKER_SPARSE_TRACE")) {
+-            std::fprintf(stderr, "saker-sparse: layer=%d queries=%lld cache=%lld selected=%d\n", il,
+-                    (long long) n_tokens, (long long) k->ne[2], config.tokens);
++            std::fprintf(stderr, "saker-sparse: layer=%d queries=%lld cache=%lld selected=%d mode=%s\n", il,
++                    (long long) n_tokens, (long long) k->ne[2], config.tokens, saker_sparse_name(config.mode));
+         }
+     } else {
+         cur = build_attn_mha(q, k, v, kq_b, kq_mask, sinks, v_mla, kq_scale, il);
+diff --git a/src/llama-graph.h b/src/llama-graph.h
+index adf13db..b59de16 100644
+--- a/src/llama-graph.h
++++ b/src/llama-graph.h
+@@ -333,11 +333,13 @@ public:
+ 
+     bool use_saker_sparse(const llama_ubatch & ubatch) const;
+     void set_saker_sparse(const llama_ubatch * ubatch, const llama_kv_cache_context * cache);
++    bool can_reuse_saker(const llama_ubatch & ubatch) const;
+ 
+     bool saker_requested = false;
+     bool saker_reported = false;
+     ggml_tensor * saker_representatives = nullptr;
+     ggml_tensor * saker_bias = nullptr;
++    ggml_tensor * saker_quest_pages = nullptr;
+ 
+     ggml_tensor * get_k_idxs() const { return self_k_idxs; }
+     ggml_tensor * get_v_idxs() const { return self_v_idxs; }
+@@ -919,6 +921,7 @@ public:
+ 
+     std::vector<llm_graph_input_ptr> inputs;
+     std::vector<llm_graph_fused_node> fused_nodes;
++    llm_graph_input_attn_kv * saker_quest_input = nullptr;
+ 
+     ggml_context_ptr ctx_compute;
+ 
+diff --git a/src/llama-kv-cache.cpp b/src/llama-kv-cache.cpp
+index 42f2689..e7de99a 100644
+--- a/src/llama-kv-cache.cpp
++++ b/src/llama-kv-cache.cpp
+@@ -4,6 +4,7 @@
+ #include "llama-io.h"
+ #include "llama-model.h"
+ #include "llama-context.h"
++#include "llama-saker-sparse.h"
+ 
+ #include <algorithm>
+ #include <cassert>
+@@ -112,7 +113,7 @@ llama_kv_cache::llama_kv_cache(
+         auto it = ctx_map.find(buft);
+         if (it == ctx_map.end()) {
+             ggml_init_params params = {
+-                /*.mem_size   =*/ size_t(2u*(1 + n_stream)*n_layer*ggml_tensor_overhead()),
++                /*.mem_size   =*/ size_t((2u*(1 + n_stream) + 2u)*n_layer*ggml_tensor_overhead()),
+                 /*.mem_buffer =*/ NULL,
+                 /*.no_alloc   =*/ true,
+             };
+@@ -245,6 +246,14 @@ llama_kv_cache::llama_kv_cache(
+         map_layer_ids[il] = layers.size();
+ 
+         layers.push_back({ il, k, v, k_stream, v_stream, });
++        const auto & sparse = saker_sparse_options();
++        if (model.arch == LLM_ARCH_QWEN35 && sparse.tokens > 0 && sparse.mode == saker_sparse_mode::quest &&
++                n_stream == 1 && !v_trans && type_k == GGML_TYPE_F16 && type_v == GGML_TYPE_F16) {
++            layers.back().quest_min = ggml_new_tensor_2d(ctx, GGML_TYPE_F16, n_embd_k_gqa, kv_size / sparse.block);
++            layers.back().quest_max = ggml_new_tensor_2d(ctx, GGML_TYPE_F16, n_embd_k_gqa, kv_size / sparse.block);
++            ggml_format_name(layers.back().quest_min, "saker_quest_min_l%d", il);
++            ggml_format_name(layers.back().quest_max, "saker_quest_max_l%d", il);
++        }
+     }
+ 
+     if (reuse) {
+@@ -364,6 +373,7 @@ llama_kv_cache::llama_kv_cache(
+ }
+ 
+ void llama_kv_cache::clear(bool data) {
++    quest_valid = false;
+     for (uint32_t s = 0; s < n_stream; ++s) {
+         v_cells[s].reset();
+         v_heads[s] = 0;
+@@ -811,6 +821,7 @@ llama_kv_cache::slot_info_vec_t llama_kv_cache::prepare(const std::vector<llama_
+ }
+ 
+ bool llama_kv_cache::update(llama_context * lctx, bool do_shift, const stream_copy_info & sc_info) {
++    if (do_shift || !sc_info.empty()) { quest_valid = false; }
+     // TODO: refactor [TAG_KV_CACHE_SHARE_CELLS]
+     if (other) {
+         return true;
+@@ -2035,6 +2046,7 @@ void llama_kv_cache::state_write(llama_io_write_i & io, llama_seq_id seq_id, lla
+ }
+ 
+ void llama_kv_cache::state_read(llama_io_read_i & io, llama_seq_id seq_id, llama_state_seq_flags flags) {
++    quest_valid = false;
+     // TODO: refactor [TAG_KV_CACHE_SHARE_CELLS]
+     if (other) {
+         return;
+@@ -2598,6 +2610,59 @@ ggml_tensor * llama_kv_cache_context::get_k(ggml_context * ctx, int32_t il) cons
+     return kv->get_k(ctx, il, n_kv, sinfos[i_cur]);
+ }
+ 
++bool llama_kv_cache::has_saker_quest() const {
++    return !layers.empty() && layers.front().quest_min != nullptr;
++}
++
++std::vector<int32_t> llama_kv_cache::saker_quest_pages(const slot_info & sinfo) const {
++    std::vector<int32_t> pages;
++    if (!has_saker_quest()) { return pages; }
++    const int block = saker_sparse_options().block;
++    if (!quest_valid) {
++        pages.resize(get_size() / block);
++        std::iota(pages.begin(), pages.end(), 0);
++    } else {
++        for (const auto & stream : sinfo.idxs) {
++            for (uint32_t slot : stream) { pages.push_back(slot / block); }
++        }
++        std::sort(pages.begin(), pages.end());
++        pages.erase(std::unique(pages.begin(), pages.end()), pages.end());
++    }
++    return pages;
++}
++
++void llama_kv_cache::saker_quest_complete(bool success) {
++    quest_valid = success;
++}
++
++ggml_tensor * llama_kv_cache::saker_quest_bound(int32_t il, bool maximum) const {
++    const auto & layer = layers[map_layer_ids.at(il)];
++    return maximum ? layer.quest_max : layer.quest_min;
++}
++
++void llama_kv_cache::saker_quest_refresh(ggml_context * ctx, ggml_cgraph * graph,
++        ggml_tensor * pages, int32_t il, const slot_info & sinfo) const {
++    saker_quest_update(ctx, graph, get_k(ctx, il, get_size(), sinfo), pages,
++            saker_quest_bound(il, false), saker_quest_bound(il, true));
++}
++
++std::vector<int32_t> llama_kv_cache_context::saker_quest_pages() const {
++    return kv->saker_quest_pages(sinfos[i_cur]);
++}
++
++void llama_kv_cache_context::saker_quest_complete(bool success) const {
++    kv->saker_quest_complete(success);
++}
++
++void llama_kv_cache_context::saker_quest_refresh(ggml_context * ctx, ggml_cgraph * graph,
++        ggml_tensor * pages, int32_t il) const {
++    kv->saker_quest_refresh(ctx, graph, pages, il, sinfos[i_cur]);
++}
++
++ggml_tensor * llama_kv_cache_context::saker_quest_bound(int32_t il, bool maximum) const {
++    return kv->saker_quest_bound(il, maximum);
++}
++
+ ggml_tensor * llama_kv_cache_context::get_v(ggml_context * ctx, int32_t il) const {
+     return kv->get_v(ctx, il, n_kv, sinfos[i_cur]);
+ }
+diff --git a/src/llama-kv-cache.h b/src/llama-kv-cache.h
+index 3c45351..2b337b4 100644
+--- a/src/llama-kv-cache.h
++++ b/src/llama-kv-cache.h
+@@ -176,6 +176,12 @@ public:
+     ggml_tensor * get_k(ggml_context * ctx, int32_t il, uint32_t n_kv, const slot_info & sinfo) const;
+     ggml_tensor * get_v(ggml_context * ctx, int32_t il, uint32_t n_kv, const slot_info & sinfo) const;
+ 
++    bool has_saker_quest() const;
++    std::vector<int32_t> saker_quest_pages(const slot_info & sinfo) const;
++    void saker_quest_complete(bool success);
++    void saker_quest_refresh(ggml_context * ctx, ggml_cgraph * graph, ggml_tensor * pages, int32_t il, const slot_info & sinfo) const;
++    ggml_tensor * saker_quest_bound(int32_t il, bool maximum) const;
++
+     // store k_cur and v_cur in the cache based on the provided head location
+     ggml_tensor * cpy_k(ggml_context * ctx, ggml_tensor * k_cur, ggml_tensor * k_idxs, int32_t il, const slot_info & sinfo) const;
+     ggml_tensor * cpy_v(ggml_context * ctx, ggml_tensor * v_cur, ggml_tensor * v_idxs, int32_t il, const slot_info & sinfo) const;
+@@ -233,6 +239,9 @@ private:
+ 
+         std::vector<ggml_tensor *> k_stream;
+         std::vector<ggml_tensor *> v_stream;
++
++        ggml_tensor * quest_min = nullptr;
++        ggml_tensor * quest_max = nullptr;
+     };
+ 
+     bool v_trans = true;  // the value tensor is transposed
+@@ -285,6 +294,7 @@ private:
+     stream_copy_info sc_info;
+ 
+     std::vector<kv_layer> layers;
++    bool quest_valid = false;
+ 
+     // model layer id -> KV cache layer id
+     std::unordered_map<int32_t, int32_t> map_layer_ids;
+@@ -368,6 +378,11 @@ public:
+ 
+     const llama_kv_cells & get_cells(llama_seq_id seq_id) const;
+ 
++    std::vector<int32_t> saker_quest_pages() const;
++    void saker_quest_complete(bool success) const;
++    void saker_quest_refresh(ggml_context * ctx, ggml_cgraph * graph, ggml_tensor * pages, int32_t il) const;
++    ggml_tensor * saker_quest_bound(int32_t il, bool maximum) const;
++
+     ggml_type type_k() const;
+     ggml_type type_v() const;
+ 
+diff --git a/src/llama-saker-sparse.h b/src/llama-saker-sparse.h
+index c2bdaac..facb96d 100644
+--- a/src/llama-saker-sparse.h
++++ b/src/llama-saker-sparse.h
+@@ -7,18 +7,36 @@
+ #include <cmath>
+ #include <cstdint>
+ #include <cstdlib>
++#include <cstring>
+ #include <limits>
+ #include <numeric>
+ #include <stdexcept>
+ #include <string>
+ #include <vector>
+ 
++enum class saker_sparse_mode { representative, quest, sparq };
++
++inline const char * saker_sparse_name(saker_sparse_mode mode) {
++    switch (mode) {
++        case saker_sparse_mode::quest: return "quest";
++        case saker_sparse_mode::sparq: return "sparq";
++        default: return "representative";
++    }
++}
++
+ struct saker_sparse_config {
++    saker_sparse_mode mode = saker_sparse_mode::representative;
+     int tokens = 0;
+     int block = 16;
+     int recent_blocks = 16;
+     int sink_blocks = 1;
+     int max_batch = 8;
++    int channels = 32;
++    int recent_tokens = 256;
++    int sink_tokens = 16;
++    int dense_layers = 0;
++
++    int unit() const { return mode == saker_sparse_mode::sparq ? 1 : block; }
+ };
+ 
+ inline int saker_sparse_env_int(const char * name, int fallback, int maximum) {
+@@ -42,10 +60,26 @@ inline const saker_sparse_config & saker_sparse_options() {
+         if (result.tokens == 0) {
+             return result;
+         }
++        if (const char * mode = std::getenv("SAKER_SPARSE_MODE")) {
++            if (std::strcmp(mode, "quest") == 0) {
++                result.mode = saker_sparse_mode::quest;
++            } else if (std::strcmp(mode, "sparq") == 0) {
++                result.mode = saker_sparse_mode::sparq;
++            } else if (std::strcmp(mode, "representative") != 0) {
++                throw std::invalid_argument("SAKER_SPARSE_MODE must be representative, quest or sparq");
++            }
++        }
++        result.dense_layers = saker_sparse_env_int("SAKER_SPARSE_DENSE_LAYERS",
++                result.mode == saker_sparse_mode::quest ? 2 : 0, 256);
+         result.recent_blocks = saker_sparse_env_int("SAKER_SPARSE_RECENT_BLOCKS", 16, 511);
+         result.sink_blocks = saker_sparse_env_int("SAKER_SPARSE_SINK_BLOCKS", 1, 511);
+-        if (result.tokens % result.block ||
+-                result.tokens / result.block <= result.recent_blocks + result.sink_blocks) {
++        result.channels = saker_sparse_env_int("SAKER_SPARQ_CHANNELS", 32, 4096);
++        result.recent_tokens = saker_sparse_env_int("SAKER_SPARQ_RECENT_TOKENS", 256, 8191);
++        result.sink_tokens = saker_sparse_env_int("SAKER_SPARQ_SINK_TOKENS", 16, 8191);
++        const int protected_count = result.mode == saker_sparse_mode::sparq ?
++                result.recent_tokens + result.sink_tokens :
++                std::max(result.recent_blocks, result.mode == saker_sparse_mode::quest ? 1 : 0) + result.sink_blocks;
++        if (result.channels == 0 || result.tokens % result.block || result.tokens / result.unit() <= protected_count) {
+             throw std::invalid_argument("SAKER_SPARSE_TOKENS must be a multiple of 16 with room for protected blocks and retrieval");
+         }
+         return result;
+@@ -60,32 +94,39 @@ inline void saker_sparse_fill_row(
+         const ggml_fp16_t * mask,
+         int32_t * representatives,
+         float * bias) {
+-    const int n_blocks = int(positions.size()) / config.block;
++    const int unit = config.unit();
++    const int n_blocks = int(positions.size()) / unit;
+     const int32_t high = std::numeric_limits<int32_t>::max();
+     std::vector<int32_t> first(n_blocks, high), last(n_blocks, -1);
+     std::vector<int> valid;
+     int32_t fallback = 0;
+     for (int b = 0; b < n_blocks; ++b) {
+-        representatives[b] = 0;
++        if (representatives) { representatives[b] = 0; }
+         bias[b] = -INFINITY;
+-        for (int i = b * config.block; i < (b + 1) * config.block; ++i) {
++        int visible = 0;
++        for (int i = b * unit; i < (b + 1) * unit; ++i) {
+             if (positions[i] < 0 || !std::isfinite(ggml_fp16_to_fp32(mask[i]))) {
+                 continue;
+             }
++            ++visible;
+             first[b] = std::min(first[b], positions[i]);
+             if (positions[i] > last[b]) {
+                 last[b] = positions[i];
+-                representatives[b] = i;
++                if (representatives) { representatives[b] = i; }
+                 fallback = i;
+             }
+         }
+         if (last[b] >= 0) {
+             bias[b] = 0.0f;
+             valid.push_back(b);
++            // Quest never ranks a partial page using bounds that include future keys.
++            if (config.mode == saker_sparse_mode::quest && visible < unit) {
++                bias[b] = INFINITY;
++            }
+         }
+     }
+     for (int b = 0; b < n_blocks; ++b) {
+-        if (last[b] < 0) {
++        if (representatives && last[b] < 0) {
+             representatives[b] = fallback;
+         }
+     }
+@@ -101,8 +142,8 @@ inline void saker_sparse_fill_row(
+             bias[valid[i]] = INFINITY;
+         }
+     };
+-    protect(config.recent_blocks, true);
+-    protect(config.sink_blocks, false);
++    protect(config.mode == saker_sparse_mode::sparq ? config.recent_tokens : config.recent_blocks, true);
++    protect(config.mode == saker_sparse_mode::sparq ? config.sink_tokens : config.sink_blocks, false);
+ }
+ 
+ struct saker_sparse_selection {
+@@ -111,6 +152,8 @@ struct saker_sparse_selection {
+     ggml_tensor * v;
+     ggml_tensor * mask;
+     ggml_tensor * blocks;
++    ggml_tensor * indices = nullptr;
++    ggml_tensor * channels = nullptr;
+ };
+ 
+ // Input Q is [D, Hq, T]; K/V are packed cache views [D, Hkv, N, 1].
+@@ -158,3 +201,98 @@ inline saker_sparse_selection saker_sparse_select(
+     mi = ggml_cast(ctx, ggml_reshape_2d(ctx, mi, n_selected * config.block, 1), GGML_TYPE_F16);
+     return {qi, gather(k), gather(v), mi, selected};
+ }
++
++// Refresh complete physical pages after cache writes. Partial pages are protected at selection time.
++inline void saker_quest_update(
++        ggml_context * ctx, ggml_cgraph * graph, ggml_tensor * k,
++        ggml_tensor * pages, ggml_tensor * minimum, ggml_tensor * maximum, int block = 16) {
++    const int64_t width = k->ne[0] * k->ne[1];
++    auto * rows = ggml_view_2d(ctx, k, width * block, k->ne[2] / block, k->nb[2] * block, 0);
++    auto * keys = ggml_get_rows(ctx, rows, pages);
++    keys = ggml_reshape_3d(ctx, keys, width, block, pages->ne[0]);
++    auto * hi = ggml_pool_2d(ctx, keys, GGML_OP_POOL_MAX, 1, block, 1, block, 0, 0);
++    auto * lo = ggml_neg(ctx, ggml_pool_2d(ctx, ggml_neg(ctx, keys), GGML_OP_POOL_MAX, 1, block, 1, block, 0, 0));
++    hi = ggml_reshape_2d(ctx, hi, width, pages->ne[0]);
++    lo = ggml_reshape_2d(ctx, lo, width, pages->ne[0]);
++    ggml_build_forward_expand(graph, ggml_set_rows(ctx, minimum, lo, pages));
++    ggml_build_forward_expand(graph, ggml_set_rows(ctx, maximum, hi, pages));
++}
++
++// Use argsort for large budgets that exceed Vulkan's dedicated top-k kernels.
++inline ggml_tensor * saker_sparse_top_k(ggml_context * ctx, ggml_tensor * scores, int count) {
++    if (count >= 1024) {
++        return ggml_cont(ctx, ggml_view_1d(ctx, ggml_argsort(ctx, scores, GGML_SORT_ORDER_DESC), count, 0));
++    }
++    return ggml_top_k(ctx, scores, count);
++}
++
++// One KV head and its query group. Cache views retain the original interleaved head strides.
++inline saker_sparse_selection saker_sparse_select_head(
++        ggml_context * ctx, const saker_sparse_config & config,
++        ggml_tensor * q, ggml_tensor * k, ggml_tensor * v, ggml_tensor * mask,
++        ggml_tensor * bias, ggml_tensor * minimum, ggml_tensor * maximum,
++        int token, int head, bool strided_rows = true) {
++    const int64_t d = q->ne[0], n = k->ne[2], group = q->ne[1] / k->ne[1];
++    const int count = int(std::min<int64_t>(config.tokens / config.unit(), n / config.unit()));
++    auto * qi = ggml_view_3d(ctx, q, d, group, 1, q->nb[1], q->nb[2], token * q->nb[2] + head * group * q->nb[1]);
++    auto * mi = ggml_view_2d(ctx, mask, n, 1, mask->nb[1], token * mask->nb[1]);
++    auto * bi = ggml_view_1d(ctx, bias, n / config.unit(), token * bias->nb[1]);
++    auto * ki = ggml_view_2d(ctx, k, d, n, k->nb[2], head * k->nb[1]);
++    ggml_tensor * scores;
++    ggml_tensor * channels = nullptr;
++    if (config.mode == saker_sparse_mode::quest) {
++        GGML_ASSERT(minimum && maximum);
++        const int64_t pages = n / config.block;
++        auto * lo = ggml_view_2d(ctx, minimum, d, pages, minimum->nb[1], head * d * ggml_type_size(minimum->type));
++        auto * hi = ggml_view_2d(ctx, maximum, d, pages, maximum->nb[1], head * d * ggml_type_size(maximum->type));
++        auto * positive = ggml_relu(ctx, qi);
++        auto * negative = ggml_neg(ctx, ggml_relu(ctx, ggml_neg(ctx, qi)));
++        auto * upper = ggml_mul_mat(ctx, hi, positive);
++        auto * lower = ggml_mul_mat(ctx, lo, negative);
++        ggml_mul_mat_set_prec(upper, GGML_PREC_F32);
++        ggml_mul_mat_set_prec(lower, GGML_PREC_F32);
++        scores = ggml_add(ctx, upper, lower);
++        scores = ggml_pool_2d(ctx, scores, GGML_OP_POOL_MAX, 1, int(group), 1, int(group), 0, 0);
++        scores = ggml_reshape_1d(ctx, scores, pages);
++    } else {
++        GGML_ASSERT(config.mode == saker_sparse_mode::sparq);
++        auto * magnitude = ggml_abs(ctx, qi);
++        auto * importance = ggml_pool_2d(ctx, magnitude, GGML_OP_POOL_AVG, 1, int(group), 1, int(group), 0, 0);
++        channels = saker_sparse_top_k(ctx, ggml_reshape_1d(ctx, importance, d), std::min<int64_t>(config.channels, d));
++        auto * qt = ggml_transpose(ctx, qi);
++        auto * kt = ggml_transpose(ctx, ki);
++        if (!strided_rows) {
++            qt = ggml_cont(ctx, qt);
++            kt = ggml_cont(ctx, kt);
++        }
++        auto * qs = ggml_cont(ctx, ggml_transpose(ctx, ggml_get_rows(ctx, qt, channels)));
++        auto * ks = ggml_cont(ctx, ggml_transpose(ctx, ggml_get_rows(ctx, kt, channels)));
++        auto * full_norm = ggml_clamp(ctx, ggml_sum_rows(ctx, magnitude), 1e-12f, INFINITY);
++        auto * part_norm = ggml_sum_rows(ctx, ggml_abs(ctx, qs));
++        auto * tau = ggml_sqrt(ctx, ggml_clamp(ctx, ggml_scale(ctx, ggml_div(ctx, part_norm, full_norm), float(d)), 1e-12f, INFINITY));
++        scores = ggml_mul_mat(ctx, ks, qs);
++        ggml_mul_mat_set_prec(scores, GGML_PREC_F32);
++        // Broadcast the per-head temperature over the sequence axis.
++        scores = ggml_div(ctx, scores, ggml_repeat(ctx, tau, scores));
++        scores = ggml_soft_max(ctx, ggml_add(ctx, scores, ggml_cast(ctx, mi, GGML_TYPE_F32)));
++        scores = ggml_pool_2d(ctx, scores, GGML_OP_POOL_AVG, 1, int(group), 1, int(group), 0, 0);
++        scores = ggml_reshape_1d(ctx, scores, n);
++    }
++    auto * selected = saker_sparse_top_k(ctx, ggml_add(ctx, scores, bi), count);
++    ggml_tensor * indices = selected;
++    if (config.mode == saker_sparse_mode::quest) {
++        auto * starts = ggml_reshape_2d(ctx, ggml_scale(ctx, ggml_cast(ctx, selected, GGML_TYPE_F32), float(config.block)), 1, count);
++        auto * offsets = ggml_arange(ctx, 0, float(config.block), 1);
++        auto * shape = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, config.block, count);
++        auto * slots = ggml_add(ctx, ggml_repeat(ctx, starts, shape), offsets);
++        indices = ggml_cast(ctx, ggml_reshape_1d(ctx, slots, count * config.block), GGML_TYPE_I32);
++    }
++    const auto gather = [&](ggml_tensor * cache) {
++        auto * rows = ggml_view_2d(ctx, cache, cache->ne[0], n, cache->nb[2], head * cache->nb[1]);
++        auto * compact = ggml_cast(ctx, ggml_get_rows(ctx, rows, indices), GGML_TYPE_F16);
++        return ggml_reshape_3d(ctx, compact, cache->ne[0], 1, indices->ne[0]);
++    };
++    auto * mask_rows = ggml_reshape_2d(ctx, mi, 1, n);
++    auto * selected_mask = ggml_cast(ctx, ggml_reshape_2d(ctx, ggml_get_rows(ctx, mask_rows, indices), indices->ne[0], 1), GGML_TYPE_F16);
++    return {qi, gather(k), gather(v), selected_mask, selected, indices, channels};
++}
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 1f6caea..eeb0f3d 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -4,6 +4,12 @@ add_executable(test-saker-sparse test-saker-sparse.cpp)
+ target_include_directories(test-saker-sparse PRIVATE ${PROJECT_SOURCE_DIR}/src)
+ target_link_libraries(test-saker-sparse PRIVATE ggml)
+ add_test(NAME test-saker-sparse COMMAND test-saker-sparse)
++add_executable(test-saker-selectors test-saker-selectors.cpp)
++target_include_directories(test-saker-selectors PRIVATE ${PROJECT_SOURCE_DIR}/src)
++target_link_libraries(test-saker-selectors PRIVATE ggml)
++add_test(NAME test-saker-selectors COMMAND test-saker-selectors)
++add_executable(saker-quality saker-quality.cpp)
++target_link_libraries(saker-quality PRIVATE llama)
+ 
+ function(llama_build source)
+     set(TEST_SOURCES ${source} ${ARGN})
+diff --git a/tests/saker-quality.cpp b/tests/saker-quality.cpp
+new file mode 100644
+index 0000000..f977e37
+--- /dev/null
++++ b/tests/saker-quality.cpp
+@@ -0,0 +1,106 @@
++#include "llama.h"
++#include "ggml-backend.h"
++
++#include <algorithm>
++#include <cmath>
++#include <cstdio>
++#include <fstream>
++#include <iterator>
++#include <stdexcept>
++#include <string>
++#include <vector>
++
++// Teacher-forced one-token decode: bulk perplexity would bypass sparse attention.
++int main(int argc, char ** argv) {
++    if (argc < 4) {
++        std::fprintf(stderr, "usage: saker-quality MODEL CORPUS OUTPUT.csv [prefix=4096] [score=128] [windows=2] [threads=4] [state-check=0]\n");
++        return 1;
++    }
++    const int prefix = argc > 4 ? std::stoi(argv[4]) : 4096;
++    const int score = argc > 5 ? std::stoi(argv[5]) : 128;
++    const int windows = argc > 6 ? std::stoi(argv[6]) : 2;
++    const int threads = argc > 7 ? std::stoi(argv[7]) : 4;
++    const bool state_check = argc > 8 && std::stoi(argv[8]) != 0;
++    if (prefix < 2 || score < 1 || windows < 1 || threads < 1) { return 1; }
++    ggml_backend_load_all();
++    llama_backend_init();
++    auto mp = llama_model_default_params();
++    mp.n_gpu_layers = 0;
++    auto * model = llama_model_load_from_file(argv[1], mp);
++    if (!model) { return 1; }
++    auto cp = llama_context_default_params();
++    cp.n_ctx = prefix + score + 256;
++    cp.n_batch = 512;
++    cp.n_ubatch = 512;
++    cp.n_threads = cp.n_threads_batch = threads;
++    cp.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_ENABLED;
++    cp.type_k = cp.type_v = GGML_TYPE_F16;
++    cp.offload_kqv = false;
++    auto * ctx = llama_init_from_model(model, cp);
++    if (!ctx) { llama_model_free(model); return 1; }
++    const auto * vocab = llama_model_get_vocab(model);
++    const int nv = llama_vocab_n_tokens(vocab);
++    std::ifstream file(argv[2], std::ios::binary);
++    const std::string text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
++    int size = -llama_tokenize(vocab, text.data(), text.size(), nullptr, 0, true, false);
++    std::vector<llama_token> tokens(size);
++    size = llama_tokenize(vocab, text.data(), text.size(), tokens.data(), size, true, false);
++    if (size < (prefix + score) * windows) {
++        std::fprintf(stderr, "corpus too short: %d tokens, need %d\n", size, (prefix + score) * windows);
++        llama_free(ctx); llama_model_free(model); llama_backend_free();
++        return 1;
++    }
++    std::ofstream output(argv[3]);
++    output.precision(12);
++    output << "window,step,target,logprob,top1\n";
++    if (!output) { return 1; }
++    double nll = 0;
++    for (int w = 0; w < windows; ++w) {
++        llama_memory_clear(llama_get_memory(ctx), true);
++        const int start = w * (prefix + score);
++        for (int pos = 0; pos < prefix - 1;) {
++            const int count = std::min(512, prefix - 1 - pos);
++            if (llama_decode(ctx, llama_batch_get_one(tokens.data() + start + pos, count))) { return 1; }
++            pos += count;
++        }
++        if (state_check) {
++            std::vector<uint8_t> state(llama_state_get_size(ctx));
++            const size_t written = llama_state_get_data(ctx, state.data(), state.size());
++            if (written != state.size()) { return 1; }
++            if (llama_decode(ctx, llama_batch_get_one(tokens.data() + start + prefix - 1, 1))) { return 1; }
++            const float * logits = llama_get_logits_ith(ctx, -1);
++            std::vector<float> expected(logits, logits + nv);
++            // Overwrite the page, restore the saved cache, then repeat the same query.
++            if (llama_decode(ctx, llama_batch_get_one(tokens.data() + start + prefix, std::min(score, 32)))) { return 1; }
++            if (llama_state_set_data(ctx, state.data(), state.size()) != state.size()) { return 1; }
++            if (llama_decode(ctx, llama_batch_get_one(tokens.data() + start + prefix - 1, 1))) { return 1; }
++            logits = llama_get_logits_ith(ctx, -1);
++            for (int i = 0; i < nv; ++i) {
++                if (!std::isfinite(logits[i]) || std::abs(logits[i] - expected[i]) > 1e-5f * (1 + std::abs(expected[i]))) {
++                    std::fprintf(stderr, "state restore changed logit %d: %g vs %g\n", i, logits[i], expected[i]);
++                    return 1;
++                }
++            }
++            if (llama_state_set_data(ctx, state.data(), state.size()) != state.size()) { return 1; }
++            std::fprintf(stderr, "PASS: state save/restore window=%d\n", w);
++        }
++        for (int t = 0; t < score; ++t) {
++            if (llama_decode(ctx, llama_batch_get_one(tokens.data() + start + prefix - 1 + t, 1))) { return 1; }
++            const float * logits = llama_get_logits_ith(ctx, -1);
++            const int best = std::max_element(logits, logits + nv) - logits;
++            double sum = 0;
++            for (int i = 0; i < nv; ++i) { sum += std::exp(double(logits[i]) - logits[best]); }
++            const int target = tokens[start + prefix + t];
++            const double logprob = logits[target] - logits[best] - std::log(sum);
++            if (!std::isfinite(logprob)) { return 1; }
++            nll -= logprob;
++            output << w << ',' << t << ',' << target << ',' << logprob << ',' << best << '\n';
++        }
++        output.flush();
++        std::fprintf(stderr, "window=%d scored=%d ppl=%.6f\n", w, (w + 1) * score, std::exp(nll / ((w + 1) * score)));
++    }
++    llama_free(ctx);
++    llama_model_free(model);
++    llama_backend_free();
++    return output ? 0 : 1;
++}
+diff --git a/tests/test-backend-ops.cpp b/tests/test-backend-ops.cpp
+index 3349a64..edfeb4d 100644
+--- a/tests/test-backend-ops.cpp
++++ b/tests/test-backend-ops.cpp
+@@ -2252,16 +2252,18 @@ struct test_get_rows : public test_case {
+     const int be1; // batch size
+     const int be2; // batch size
+     const bool v; // view (non-contiguous src1)
++    const bool transposed;
+ 
+     std::string vars() override {
+-        return VARS_TO_STR7(type, n, m, r, be1, be2, v);
++        return VARS_TO_STR7(type, n, m, r, be1, be2, v) + ",transposed=" + std::to_string(transposed);
+     }
+ 
+-    test_get_rows(ggml_type type = GGML_TYPE_F32, int n = 10, int m = 5, int r = 3, int be1 = 1, int be2 = 1, bool v = false)
+-        : type(type), n(n), m(m), r(r), be1(be1), be2(be2), v(v) {}
++    test_get_rows(ggml_type type = GGML_TYPE_F32, int n = 10, int m = 5, int r = 3, int be1 = 1, int be2 = 1, bool v = false, bool transposed = false)
++        : type(type), n(n), m(m), r(r), be1(be1), be2(be2), v(v), transposed(transposed) {}
+ 
+     ggml_tensor * build_graph(ggml_context * ctx) override {
+-        ggml_tensor * in = ggml_new_tensor_4d(ctx, type, n, m, be1, be2);
++        ggml_tensor * in = ggml_new_tensor_4d(ctx, type, transposed ? m : n, transposed ? n : m, be1, be2);
++        if (transposed) { in = ggml_transpose(ctx, in); }
+         ggml_set_name(in, "in");
+ 
+         ggml_tensor * rows = ggml_new_tensor_3d(ctx, GGML_TYPE_I32, r, be1, be2);
+@@ -2271,7 +2273,7 @@ struct test_get_rows : public test_case {
+             ggml_set_name(rows, "view_of_rows");
+         }
+ 
+-        const bool grad_supported = ggml_is_matrix(in) && ggml_is_vector(rows);
++        const bool grad_supported = !transposed && ggml_is_matrix(in) && ggml_is_vector(rows);
+         if (grad_supported) {
+             ggml_set_param(in);
+             // rows is a constant input -> no gradients
+@@ -8368,6 +8370,9 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
+     }
+ 
+     test_cases.emplace_back(new test_get_rows(GGML_TYPE_F32, 1, 8, 2, 1, 1, false));
++    for (auto type : {GGML_TYPE_F16, GGML_TYPE_F32}) {
++        test_cases.emplace_back(new test_get_rows(type, 96, 32, 8, 2, 1, false, true));
++    }
+     for (ggml_type type : all_types) {
+         for (int b : {1, 7}) {
+             for (bool v : {false, true}) {
+diff --git a/tests/test-saker-selectors.cpp b/tests/test-saker-selectors.cpp
+new file mode 100644
+index 0000000..ac28bb1
+--- /dev/null
++++ b/tests/test-saker-selectors.cpp
+@@ -0,0 +1,281 @@
++#include "llama-saker-sparse.h"
++#include "ggml-backend.h"
++#include "ggml-alloc.h"
++
++#include <cstdio>
++#include <random>
++#include <set>
++
++#define CHECK(x) do { if (!(x)) { std::fprintf(stderr, "FAIL line %d: %s\n", __LINE__, #x); std::abort(); } } while (0)
++
++static void supported(ggml_backend_t backend, ggml_cgraph * graph) {
++    for (int i = 0; i < ggml_graph_n_nodes(graph); ++i) {
++        auto * node = ggml_graph_node(graph, i);
++        if (!ggml_backend_supports_op(backend, node)) {
++            std::fprintf(stderr, "unsupported on %s: %s\n", ggml_backend_name(backend), ggml_op_name(node->op));
++            CHECK(false);
++        }
++    }
++}
++
++static std::vector<double> softmax(std::vector<double> x) {
++    const double maximum = *std::max_element(x.begin(), x.end());
++    double total = 0;
++    for (auto & v : x) { v = std::exp(v - maximum); total += v; }
++    for (auto & v : x) { v /= total; }
++    return x;
++}
++
++static void test_selector(ggml_backend_t backend, saker_sparse_mode mode, int nt, bool all, bool fragmented, int channels, bool zero) {
++    constexpr int d = 32, hq = 4, hk = 2, n = 96, capacity = 128, group = hq / hk;
++    saker_sparse_config config;
++    config.mode = mode;
++    config.tokens = all ? n : 48;
++    config.channels = channels;
++    config.recent_blocks = 1;
++    config.sink_blocks = 1;
++    config.recent_tokens = 8;
++    config.sink_tokens = 4;
++    const int unit = config.unit(), count = config.tokens / unit, nb = n / unit;
++    auto * ctx = ggml_init({32 * 1024 * 1024, nullptr, true});
++    CHECK(ctx);
++    auto * q = ggml_new_tensor_3d(ctx, GGML_TYPE_F32, d, hq, nt);
++    auto * ks = ggml_new_tensor_3d(ctx, GGML_TYPE_F16, d, hk, capacity);
++    auto * vs = ggml_new_tensor_3d(ctx, GGML_TYPE_F16, d, hk, capacity);
++    auto * k = ggml_view_4d(ctx, ks, d, hk, n, 1, d * 2, d * hk * 2, capacity * d * hk * 2, 0);
++    auto * v = ggml_view_4d(ctx, vs, d, hk, n, 1, d * 2, d * hk * 2, capacity * d * hk * 2, 0);
++    auto * mask = ggml_new_tensor_2d(ctx, GGML_TYPE_F16, n, nt);
++    auto * bias = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, nb, nt);
++    auto * lo = ggml_new_tensor_2d(ctx, GGML_TYPE_F16, d * hk, capacity / 16);
++    auto * hi = ggml_dup_tensor(ctx, lo);
++    auto * pages = ggml_new_tensor_1d(ctx, GGML_TYPE_I32, capacity / 16);
++    auto * graph = ggml_new_graph_custom(ctx, 8192, false);
++    if (mode == saker_sparse_mode::quest) { saker_quest_update(ctx, graph, ks, pages, lo, hi); }
++    std::vector<saker_sparse_selection> selections;
++    std::vector<ggml_tensor *> outputs;
++    for (int t = 0; t < nt; ++t) {
++        for (int h = 0; h < hk; ++h) {
++            auto s = saker_sparse_select_head(ctx, config, q, k, v, mask, bias, lo, hi, t, h);
++            auto * out = ggml_flash_attn_ext(ctx, ggml_permute(ctx, s.q, 0, 2, 1, 3),
++                    ggml_permute(ctx, s.k, 0, 2, 1, 3), ggml_permute(ctx, s.v, 0, 2, 1, 3),
++                    s.mask, 1.0f / std::sqrt(float(d)), 0, 0);
++            ggml_flash_attn_ext_set_prec(out, GGML_PREC_F32);
++            ggml_build_forward_expand(graph, out);
++            selections.push_back(s);
++            outputs.push_back(out);
++        }
++    }
++    supported(backend, graph);
++    auto buffer = ggml_backend_alloc_ctx_tensors(ctx, backend);
++    CHECK(buffer);
++    std::mt19937 rng(41);
++    std::uniform_real_distribution<float> uniform(-0.7f, 0.7f);
++    std::vector<float> queries(d * hq * nt);
++    std::vector<ggml_fp16_t> keys(d * hk * capacity), values(keys.size()), masks(n * nt);
++    for (auto & x : queries) { x = zero ? 0 : uniform(rng); }
++    for (auto & x : keys) { x = ggml_fp32_to_fp16(uniform(rng)); }
++    for (auto & x : values) { x = ggml_fp32_to_fp16(uniform(rng)); }
++    // Interior keys with opposite signs make a last-key representative insufficient.
++    keys[(17 * hk) * d] = ggml_fp32_to_fp16(4);
++    keys[(34 * hk + 1) * d + 1] = ggml_fp32_to_fp16(-4);
++    const auto original_keys = keys, original_values = values;
++    std::vector<int32_t> positions(n), page_ids(capacity / 16);
++    std::iota(positions.begin(), positions.end(), 0);
++    std::iota(page_ids.begin(), page_ids.end(), 0);
++    if (fragmented) {
++        if (mode == saker_sparse_mode::quest) {
++            std::rotate(positions.begin(), positions.begin() + 32, positions.end());
++        } else {
++            std::shuffle(positions.begin(), positions.end(), rng);
++            for (int i = 7; i < n; i += 13) { positions[i] = -1; }
++        }
++    }
++    std::vector<float> biases(nb * nt);
++    std::vector<std::vector<int32_t>> initial_ids;
++    std::vector<std::vector<float>> initial_output;
++    for (int pass = 0; pass < 3; ++pass) {
++        const int start = pass == 2 ? 60 : 72;
++        if (pass == 2) { keys = original_keys; values = original_values; }
++        for (int t = 0; t < nt; ++t) {
++            for (int i = 0; i < n; ++i) {
++                masks[t*n + i] = ggml_fp32_to_fp16(positions[i] >= 0 && positions[i] <= start + t ? 0 : -INFINITY);
++            }
++            saker_sparse_fill_row(config, positions, masks.data() + t*n, nullptr, biases.data() + t*nb);
++        }
++        if (pass == 1) {
++            for (int i = 0; i < n; ++i) {
++                if (positions[i] < 0 || positions[i] > start) {
++                    for (int j = 0; j < d*hk; ++j) {
++                        keys[i*d*hk+j] = ggml_fp32_to_fp16(5 + j / 32.0f);
++                        values[i*d*hk+j] = ggml_fp32_to_fp16(-ggml_fp16_to_fp32(original_values[i*d*hk+j]));
++                    }
++                }
++            }
++        }
++        ggml_backend_tensor_set(q, queries.data(), 0, ggml_nbytes(q));
++        ggml_backend_tensor_set(ks, keys.data(), 0, ggml_nbytes(ks));
++        ggml_backend_tensor_set(vs, values.data(), 0, ggml_nbytes(vs));
++        ggml_backend_tensor_set(mask, masks.data(), 0, ggml_nbytes(mask));
++        ggml_backend_tensor_set(bias, biases.data(), 0, ggml_nbytes(bias));
++        if (mode == saker_sparse_mode::quest) { ggml_backend_tensor_set(pages, page_ids.data(), 0, ggml_nbytes(pages)); }
++        CHECK(ggml_backend_graph_compute(backend, graph) == GGML_STATUS_SUCCESS);
++        for (int t = 0; t < nt; ++t) {
++            for (int h = 0; h < hk; ++h) {
++                const int index = t*hk+h;
++                std::vector<int32_t> ids(count), slots(config.tokens), dims(std::min(channels, d));
++                std::vector<float> actual(d*group);
++                ggml_backend_tensor_get(selections[index].blocks, ids.data(), 0, ids.size()*sizeof(int32_t));
++                ggml_backend_tensor_get(selections[index].indices, slots.data(), 0, slots.size()*sizeof(int32_t));
++                ggml_backend_tensor_get(outputs[index], actual.data(), 0, actual.size()*sizeof(float));
++                CHECK(std::set<int32_t>(ids.begin(), ids.end()).size() == ids.size());
++                CHECK(std::set<int32_t>(slots.begin(), slots.end()).size() == slots.size());
++                for (int i : slots) { CHECK(i >= 0 && i < n); }
++                for (int i = 0; i < nb; ++i) {
++                    if (biases[t*nb+i] == INFINITY) { CHECK(std::find(ids.begin(), ids.end(), i) != ids.end()); }
++                }
++                std::vector<double> score(nb, 0);
++                if (mode == saker_sparse_mode::quest) {
++                    for (int b = 0; b < nb; ++b) {
++                        double best = -INFINITY;
++                        for (int g = 0; g < group; ++g) {
++                            double bound = 0;
++                            for (int j = 0; j < d; ++j) {
++                                double low = INFINITY, high = -INFINITY;
++                                for (int i = b*16; i < (b+1)*16; ++i) {
++                                    const double key = ggml_fp16_to_fp32(keys[(i*hk+h)*d+j]);
++                                    low = std::min(low, key); high = std::max(high, key);
++                                }
++                                const double query = queries[(t*hq+h*group+g)*d+j];
++                                bound += std::max(query*low, query*high);
++                            }
++                            best = std::max(best, bound);
++                        }
++                        score[b] = best;
++                    }
++                } else {
++                    ggml_backend_tensor_get(selections[index].channels, dims.data(), 0, dims.size()*sizeof(int32_t));
++                    std::vector<double> importance(d, 0);
++                    for (int j = 0; j < d; ++j) {
++                        for (int g = 0; g < group; ++g) { importance[j] += std::abs(queries[(t*hq+h*group+g)*d+j]); }
++                    }
++                    CHECK(std::set<int32_t>(dims.begin(), dims.end()).size() == dims.size());
++                    double least = INFINITY;
++                    for (int j : dims) { CHECK(j >= 0 && j < d); least = std::min(least, importance[j]); }
++                    for (int j = 0; j < d; ++j) {
++                        if (std::find(dims.begin(), dims.end(), j) == dims.end()) { CHECK(importance[j] <= least + 1e-5); }
++                    }
++                    for (int g = 0; g < group; ++g) {
++                        double full_norm = 0, part_norm = 0;
++                        for (int j = 0; j < d; ++j) { full_norm += std::abs(queries[(t*hq+h*group+g)*d+j]); }
++                        for (int j : dims) { part_norm += std::abs(queries[(t*hq+h*group+g)*d+j]); }
++                        const double tau = std::sqrt(std::max(1e-12, d * part_norm / std::max(1e-12, full_norm)));
++                        std::vector<double> logits(n, -INFINITY);
++                        for (int i = 0; i < n; ++i) {
++                            if (!std::isfinite(ggml_fp16_to_fp32(masks[t*n+i]))) { continue; }
++                            double dot = 0;
++                            for (int j : dims) { dot += queries[(t*hq+h*group+g)*d+j] * ggml_fp16_to_fp32(keys[(i*hk+h)*d+j]); }
++                            logits[i] = dot / tau;
++                        }
++                        const auto probabilities = softmax(logits);
++                        for (int i = 0; i < n; ++i) { score[i] += probabilities[i] / group; }
++                    }
++                }
++                for (int i = 0; i < nb; ++i) { score[i] += biases[t*nb+i]; }
++                double least = INFINITY;
++                for (int i : ids) { least = std::min(least, score[i]); }
++                for (int i = 0; i < nb; ++i) {
++                    if (std::find(ids.begin(), ids.end(), i) == ids.end()) { CHECK(score[i] <= least + 2e-5); }
++                }
++                for (int g = 0; g < group; ++g) {
++                    std::vector<double> logits(n, -INFINITY);
++                    for (int i = 0; i < n; ++i) {
++                        if ((!all && std::find(slots.begin(), slots.end(), i) == slots.end()) ||
++                                !std::isfinite(ggml_fp16_to_fp32(masks[t*n+i]))) { continue; }
++                        double dot = 0;
++                        for (int j = 0; j < d; ++j) { dot += queries[(t*hq+h*group+g)*d+j] * ggml_fp16_to_fp32(keys[(i*hk+h)*d+j]); }
++                        logits[i] = dot / std::sqrt(double(d));
++                    }
++                    const auto probabilities = softmax(logits);
++                    for (int j = 0; j < d; ++j) {
++                        double expected = 0;
++                        for (int i = 0; i < n; ++i) { expected += probabilities[i] * ggml_fp16_to_fp32(values[(i*hk+h)*d+j]); }
++                        CHECK(std::isfinite(actual[g*d+j]));
++                        CHECK(std::abs(actual[g*d+j] - expected) < 0.002 * (1 + std::abs(expected)));
++                    }
++                }
++                if (pass == 0) { initial_ids.push_back(ids); initial_output.push_back(actual); }
++                if (pass == 1 && t == 0) {
++                    CHECK(ids == initial_ids[index]);
++                    for (size_t j = 0; j < actual.size(); ++j) { CHECK(std::abs(actual[j] - initial_output[index][j]) < 1e-6); }
++                }
++            }
++        }
++    }
++    ggml_backend_buffer_free(buffer);
++    ggml_free(ctx);
++}
++
++static void test_page_update(ggml_backend_t backend) {
++    constexpr int width = 64, n = 64;
++    auto * ctx = ggml_init({4 * 1024 * 1024, nullptr, true});
++    auto * keys = ggml_new_tensor_3d(ctx, GGML_TYPE_F16, width / 2, 2, n);
++    auto * lo = ggml_new_tensor_2d(ctx, GGML_TYPE_F16, width, n / 16);
++    auto * hi = ggml_dup_tensor(ctx, lo);
++    auto * page = ggml_new_tensor_1d(ctx, GGML_TYPE_I32, 1);
++    auto * graph = ggml_new_graph_custom(ctx, 128, false);
++    saker_quest_update(ctx, graph, keys, page, lo, hi);
++    supported(backend, graph);
++    auto buffer = ggml_backend_alloc_ctx_tensors(ctx, backend);
++    CHECK(buffer);
++    std::vector<ggml_fp16_t> data(width*n), low(width*4, ggml_fp32_to_fp16(19)), high(low);
++    ggml_backend_tensor_set(lo, low.data(), 0, ggml_nbytes(lo));
++    ggml_backend_tensor_set(hi, high.data(), 0, ggml_nbytes(hi));
++    // Revisit pages to check that overwrites shrink bounds rather than preserving stale extrema.
++    int pass = 0;
++    for (int32_t p : {2, 0, 3, 1, 2}) {
++        ++pass;
++        for (int i = 0; i < n; ++i) {
++            for (int j = 0; j < width; ++j) { data[i*width+j] = ggml_fp32_to_fp16(((i % 16 - 8) * 0.125f + j * 0.03125f + p) / pass); }
++        }
++        ggml_backend_tensor_set(keys, data.data(), 0, ggml_nbytes(keys));
++        ggml_backend_tensor_set(page, &p, 0, sizeof(p));
++        CHECK(ggml_backend_graph_compute(backend, graph) == GGML_STATUS_SUCCESS);
++        std::vector<ggml_fp16_t> actual_lo(low.size()), actual_hi(high.size());
++        ggml_backend_tensor_get(lo, actual_lo.data(), 0, ggml_nbytes(lo));
++        ggml_backend_tensor_get(hi, actual_hi.data(), 0, ggml_nbytes(hi));
++        for (int b = 0; b < 4; ++b) {
++            for (int j = 0; j < width; ++j) {
++                if (b == p) {
++                    low[b*width+j] = data[(b*16)*width+j];
++                    high[b*width+j] = data[(b*16+15)*width+j];
++                }
++                CHECK(actual_lo[b*width+j] == low[b*width+j]);
++                CHECK(actual_hi[b*width+j] == high[b*width+j]);
++            }
++        }
++    }
++    ggml_backend_buffer_free(buffer);
++    ggml_free(ctx);
++}
++
++int main(int argc, char ** argv) {
++    ggml_backend_load_all();
++    auto backend = ggml_backend_init_by_name(argc > 1 ? argv[1] : "CPU", nullptr);
++    CHECK(backend);
++    int cases = 0;
++    for (auto mode : {saker_sparse_mode::quest, saker_sparse_mode::sparq}) {
++        for (int nt : {1, 3, 8}) {
++            for (bool all : {false, true}) {
++                for (bool fragmented : {false, true}) {
++                    test_selector(backend, mode, nt, all, fragmented, 8, false);
++                    ++cases;
++                }
++            }
++        }
++    }
++    test_selector(backend, saker_sparse_mode::sparq, 3, false, true, 32, false);
++    test_selector(backend, saker_sparse_mode::sparq, 3, false, true, 8, true);
++    test_page_update(backend);
++    std::printf("PASS: %d selector cases (three cache updates each), all-channel/zero-query SparQ and incremental Quest metadata on %s\n", cases, ggml_backend_name(backend));
++    ggml_backend_free(backend);
++}
+diff --git a/tests/test-saker-sparse.cpp b/tests/test-saker-sparse.cpp
+index cd91c3f..6192836 100644
+--- a/tests/test-saker-sparse.cpp
++++ b/tests/test-saker-sparse.cpp
+@@ -184,7 +184,9 @@ static void test_case(ggml_backend_t backend, int n_queries, bool all_blocks, bo
+ int main(int argc, char ** argv) {
+     if (argc == 2 && std::string(argv[1]) == "--config") {
+         try {
+-            std::printf("tokens=%d\n", saker_sparse_options().tokens);
++            const auto & config = saker_sparse_options();
++            std::printf("tokens=%d mode=%s channels=%d dense_layers=%d\n", config.tokens,
++                    saker_sparse_name(config.mode), config.channels, config.dense_layers);
+             return 0;
+         } catch (const std::exception & error) {
+             std::fprintf(stderr, "%s\n", error.what());
