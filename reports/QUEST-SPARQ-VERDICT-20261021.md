@@ -1,7 +1,45 @@
 # Quest / SparQ verdict — 2026-10-21
 
-Branch `codex/quest-sparq-attention` (`b8936f00`), built from a pristine `9d57ce456` +
-`saker-combined` + `saker-sparse-attention` + `saker-quest-sparq`, Vulkan on gfx1151.
+> ## CORRECTION (same day, later): the verdict below was measured only at 4k/8k and is WRONG as general advice.
+>
+> Sparse is a **long-context win**, not a loss. Sweeping 16384/32768 at budget 2048 (n=3):
+>
+> | depth | AR dense -> sparse | MTP dense -> sparse |
+> |---|---|---|
+> | 4096 | 19.41 -> 17.78 (-8.4%) | 32.00 -> 27.11 (-15.3%) |
+> | 8192 | 18.93 -> 17.66 (-6.7%) | 32.60 -> 24.91 (-23.6%) |
+> | 16384 | 18.07 -> 17.42 (-3.6%) | 28.97 -> 29.53 (+1.9%) |
+> | 32768 | 16.59 -> 17.07 (+2.9%) | 22.75 -> 30.05 (+32.1%) |
+>
+> Crossover is between 16k and 32k. The penalty shrinks *accelerating* (1.7 -> 3.1 -> 6.5 pp per
+> doubling) because attention's share of a round grows with context while the selection overhead is
+> roughly fixed per round.
+>
+> Mechanism, from the MTP decomposition (rounds = predicted_n - draft_n_accepted):
+>
+> | depth | dense accept | sparse accept | dense tok/round | sparse tok/round | dense ms/round | sparse ms/round |
+> |---|---|---|---|---|---|---|
+> | 4096 | 0.6358 | 0.6575 | 2.246 | 2.272 | 69.6 | 83.3 |
+> | 8192 | 0.6994 | 0.5829 | 2.356 | 2.133 | 71.7 | 85.1 |
+> | 16384 | 0.6310 | 0.8229 | 2.233 | 2.612 | 76.6 | 87.8 |
+> | 32768 | 0.4921 | 0.9179 | 1.959 | 2.783 | 85.8 | 91.9 |
+>
+> At long context **dense** MTP acceptance collapses (0.699 -> 0.492) while **sparse** acceptance
+> climbs (0.583 -> 0.918). Capping the attended set returns the target to something like the
+> short-context regime the draft head was trained on, so the drafter matches better. Sparse does not
+> corrupt the regime at long context; dense drifts out of it. ms/round still favours dense (+19% at
+> 4k) but the gap closes (+7% at 32k) while tok/round moves sharply in sparse's favour.
+>
+> **Still open, and it gates any adoption:** quality at 32k is unmeasured. The +32% MTP is a speed
+> result only; the harness itself warns "output agreement alone is not a quality evaluation". At
+> 4k/8k, budget 2048 gave top-1 agreement with dense of only 0.39-0.45. If that holds at 32k the win
+> is not usable. Do not enable sparse until top-1 agreement / PPL is measured at the intended depth.
+>
+> Correct recommendation: long-context opt-in above ~16k, gated on quality - not "close the branch".
+>
+> Data: `talon-out/saker/sparq-longctx-20261021/bench.jsonl`.
+
+## ORIGINAL (short-context only — superseded above)
 
 ## Verdict: not shippable. Slower at every tested depth, in both decode modes.
 
