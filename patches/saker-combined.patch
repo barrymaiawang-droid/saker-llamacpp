@@ -1,5 +1,5 @@
 diff --git a/common/speculative.cpp b/common/speculative.cpp
-index cd2dfc760..a2c1bdfea 100644
+index cd2dfc760..d4e8cadc4 100644
 --- a/common/speculative.cpp
 +++ b/common/speculative.cpp
 @@ -1307,6 +1307,10 @@ struct common_speculative_impl_draft_mtp : public common_speculative_impl {
@@ -40,7 +40,7 @@ index cd2dfc760..a2c1bdfea 100644
      }
  
      ~common_speculative_impl_draft_mtp() override {
-@@ -1539,6 +1553,47 @@ struct common_speculative_impl_draft_mtp : public common_speculative_impl {
+@@ -1539,6 +1553,67 @@ struct common_speculative_impl_draft_mtp : public common_speculative_impl {
                      verify_h[seq_id].data() + (size_t) (n_rows - 1) * n_embd, row_bytes);
          }
  
@@ -50,8 +50,28 @@ index cd2dfc760..a2c1bdfea 100644
 +            // step ahead of, and its argmax (rank 1) is inside the top-K by construction.
 +            // NOTE: single-sequence use (n_seq == 1), which is the harness configuration.
 +            const int32_t i_end = i_batch_end[0] >= 0 ? i_batch_end[0] : (n_tokens - 1);
-+            const float * lg = llama_get_logits_ith(ctx_tgt, i_end);
++            // saker: use the LAST OUTPUT ROW instead of guessing a batch index.
++            // llama_get_logits_ith() only answers for positions flagged for output; asking for one that
++            // is not flagged logs "get_logits_ith: invalid logits id" and returns nullptr, and the old
++            // code then skipped the refresh entirely - leaving the draft on a STALE candidate list from
++            // an earlier round. Probing downward inside the batch range "works" but emits one error log
++            // per miss (measured: 6 -> 140 per run), so use the API's own negative index instead: -1 is
++            // the i-th logits from the END of the outputs, i.e. the last position that has them.
++            const float * lg = llama_get_logits_ith(ctx_tgt, -1);
++            if (lg == nullptr) {
++                lg = llama_get_logits_ith(ctx_tgt, i_end);   // last resort: the batch index
++            }
++            if (lg == nullptr) {
++                // MEASURED cause: llama_get_logits_ith fails with "corrupt output buffer ... n_outputs=0",
++                // i.e. the target decode produced NO output rows at all, so there are no logits to seed
++                // the shortlist from. The old code simply skipped the refresh, leaving the draft to score
++                // mtp_shortlist->ids - which is zero-initialised, i.e. K copies of token 0. Drafting
++                // against that is worse than not drafting short at all, so fall back to the full head
++                // for this round.
++                llama_set_mtp_shortlist_enabled(llama_get_model(ctx_dft), false);
++            }
 +            if (lg != nullptr) {
++                llama_set_mtp_shortlist_enabled(llama_get_model(ctx_dft), true);
 +                const int32_t n_vocab = llama_vocab_n_tokens(llama_model_get_vocab(llama_get_model(ctx_tgt)));
 +
 +                auto gt = [](const std::pair<float, int32_t> & a, const std::pair<float, int32_t> & b) {
@@ -88,7 +108,7 @@ index cd2dfc760..a2c1bdfea 100644
          return true;
      }
  
-@@ -2633,7 +2688,12 @@ void common_speculative_draft(common_speculative * spec) {
+@@ -2633,7 +2708,12 @@ void common_speculative_draft(common_speculative * spec) {
      for (auto & impl : spec->impls) {
          {
              common_time_meas tm(impl->t_draft_us, !impl->gen_perf);
@@ -219,10 +239,10 @@ index ff4a33904..5673e5f9e 100644
      // Check for mmq first
      vk_matmul_pipeline mmp = quantize_y ? ggml_vk_get_mul_mat_mat_pipeline(ctx, src0->type, GGML_TYPE_Q8_1, (ggml_prec)dst->op_params[0]) : nullptr;
 diff --git a/include/llama.h b/include/llama.h
-index 177fc10a9..0c4467384 100644
+index 177fc10a9..879d821b6 100644
 --- a/include/llama.h
 +++ b/include/llama.h
-@@ -571,6 +571,13 @@ extern "C" {
+@@ -571,6 +571,16 @@ extern "C" {
  
      LLAMA_API const struct llama_model * llama_get_model   (const struct llama_context * ctx);
      LLAMA_API           llama_memory_t   llama_get_memory  (const struct llama_context * ctx);
@@ -233,14 +253,17 @@ index 177fc10a9..0c4467384 100644
 +    LLAMA_API int32_t llama_model_mtp_shortlist_k(const struct llama_model * model);
 +    LLAMA_API void    llama_set_mtp_candidates (const struct llama_model * model, const int32_t * ids, int32_t n);
 +    LLAMA_API bool    llama_model_mtp_shortlist_active(const struct llama_model * model);
++    // Enables/disables the shortlist for the NEXT draft round. Disable when the target's logits were
++    // not available, so the draft uses the full head instead of a stale candidate list.
++    LLAMA_API void    llama_set_mtp_shortlist_enabled(const struct llama_model * model, bool enabled);
      LLAMA_API  enum llama_pooling_type   llama_pooling_type(const struct llama_context * ctx); // TODO: rename to llama_get_pooling_type
  
      LLAMA_API const struct llama_vocab * llama_model_get_vocab(const struct llama_model * model);
 diff --git a/src/llama-context.cpp b/src/llama-context.cpp
-index ce38e8a31..81a5be8e6 100644
+index ce38e8a31..5384bc77e 100644
 --- a/src/llama-context.cpp
 +++ b/src/llama-context.cpp
-@@ -1483,7 +1483,17 @@ int llama_context::encode(const llama_batch & batch_inp) {
+@@ -1483,7 +1483,46 @@ int llama_context::encode(const llama_batch & batch_inp) {
          GGML_ASSERT(backend_res != nullptr);
          GGML_ASSERT(logits.data != nullptr);
  
@@ -251,15 +274,44 @@ index ce38e8a31..81a5be8e6 100644
 +            if (saker_cols == (int64_t) n_vocab) {
 +                ggml_backend_tensor_get_async(backend_res, t_logits, logits.data, 0, n_tokens*n_vocab*sizeof(float));
 +            } else {
++                // saker: narrow [K] logits. The K columns are the scores of the candidate tokens held
++                // in model.mtp_shortlist->ids, IN THAT ORDER, so each row must be rebuilt as a
++                // restricted distribution: the candidate's score at its TRUE token position, -inf
++                // everywhere else. The previous code copied the K floats straight into a full-width
++                // row, which left every other token id holding stale buffer contents and treated the
++                // column index as a token id - the same defect decode() already fixes below.
++                const int64_t saker_k = saker_cols;
++                std::vector<int32_t> saker_cand(saker_k, 0);
++                bool saker_have_cand = false;
++                if (model.mtp_shortlist && model.mtp_shortlist->ids) {
++                    ggml_backend_tensor_get(model.mtp_shortlist->ids, saker_cand.data(), 0, (size_t) saker_k * sizeof(int32_t));
++                    saker_have_cand = true;
++                }
++                if (backend_res) { ggml_backend_synchronize(backend_res); }
++                std::vector<float> saker_row(saker_k, 0.0f);
 +                for (int64_t r = 0; r < n_tokens; ++r) {
-+                    ggml_backend_tensor_get_async(backend_res, t_logits, logits.data + r*n_vocab, r*saker_cols*sizeof(float), saker_cols*sizeof(float));
++                    ggml_backend_tensor_get(t_logits, saker_row.data(), (size_t) r * t_logits->nb[1], (size_t) saker_k * sizeof(float));
++                    float * saker_out = logits.data + (size_t) r * n_vocab;
++                    std::fill(saker_out, saker_out + n_vocab, (float) -INFINITY);
++                    if (saker_have_cand) {
++                        for (int64_t j = 0; j < saker_k; ++j) {
++                            const int32_t saker_tok = saker_cand[j];
++                            if (saker_tok >= 0 && saker_tok < (int32_t) n_vocab) {
++                                saker_out[saker_tok] = saker_row[j];
++                            }
++                        }
++                    } else {
++                        for (int64_t j = 0; j < saker_k && j < (int64_t) n_vocab; ++j) {
++                            saker_out[j] = saker_row[j];
++                        }
++                    }
 +                }
 +            }
 +        }
      }
  
      // extract embeddings
-@@ -1870,7 +1880,59 @@ int llama_context::decode(const llama_batch & batch_inp) {
+@@ -1870,7 +1909,59 @@ int llama_context::decode(const llama_batch & batch_inp) {
              if (n_outputs) {
                  GGML_ASSERT( n_outputs_prev + n_outputs <= n_outputs_all);
                  GGML_ASSERT((n_outputs_prev + n_outputs)*n_vocab <= (int64_t) logits.size);
@@ -321,10 +373,10 @@ index ce38e8a31..81a5be8e6 100644
          }
  
 diff --git a/src/llama-model.cpp b/src/llama-model.cpp
-index 3ef683d5b..73c611d9b 100644
+index 3ef683d5b..7bab5c247 100644
 --- a/src/llama-model.cpp
 +++ b/src/llama-model.cpp
-@@ -1069,6 +1069,77 @@ llama_model::~llama_model() {
+@@ -1069,6 +1069,93 @@ llama_model::~llama_model() {
      }
  }
  
@@ -350,6 +402,9 @@ index 3ef683d5b..73c611d9b 100644
 +    const int32_t k = saker_shortlist_env_k();
 +    if (k == 0 || output == nullptr) {
 +        return nullptr;
++    }
++    if (mtp_shortlist && !mtp_shortlist->enabled) {
++        return nullptr;   // disabled for this round: draft against the full head
 +    }
 +    if (!mtp_shortlist) {
 +        mtp_shortlist = std::make_unique<saker_mtp_shortlist>();
@@ -383,6 +438,19 @@ index 3ef683d5b..73c611d9b 100644
 +    return model != nullptr && model->mtp_shortlist != nullptr;
 +}
 +
++void llama_set_mtp_shortlist_enabled(const struct llama_model * model, bool enabled) {
++    if (model == nullptr) {
++        return;
++    }
++    llama_model * m = const_cast<llama_model *>(model);
++    if (m->saker_mtp_shortlist_get() == nullptr && !enabled) {
++        return;   // nothing allocated yet, and nothing to disable
++    }
++    if (m->mtp_shortlist) {
++        m->mtp_shortlist->enabled = enabled;
++    }
++}
++
 +void llama_set_mtp_candidates(const struct llama_model * model, const int32_t * ids, int32_t n) {
 +    if (model == nullptr) {
 +        return;
@@ -403,10 +471,10 @@ index 3ef683d5b..73c611d9b 100644
      pimpl->n_elements = ml.n_elements;
      pimpl->n_bytes = ml.n_bytes;
 diff --git a/src/llama-model.h b/src/llama-model.h
-index 510ed8498..a6d70bc38 100644
+index 510ed8498..f2080c4fa 100644
 --- a/src/llama-model.h
 +++ b/src/llama-model.h
-@@ -660,6 +660,22 @@ struct llama_model {
+@@ -660,6 +660,27 @@ struct llama_model {
      // for keeping track of associated LoRA adapters
      std::unordered_set<llama_adapter_lora *> loras;
  
@@ -419,6 +487,11 @@ index 510ed8498..a6d70bc38 100644
 +        struct ggml_tensor *         ids = nullptr; // i32 [k]
 +        struct ggml_backend_buffer * buf = nullptr; // owns ids storage
 +        int32_t                      k   = 0;
++        // false => saker_mtp_shortlist_get() returns nullptr and the draft falls back to the FULL
++        // head for this round. Needed because the target's logits are not always available (measured:
++        // "n_outputs=0" during the first draft), and drafting against a stale/zero candidate list is
++        // worse than drafting against everything.
++        bool                         enabled = true;
 +        ~saker_mtp_shortlist();
 +    };
 +    mutable std::unique_ptr<struct saker_mtp_shortlist> mtp_shortlist;
