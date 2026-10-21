@@ -19,6 +19,14 @@ The original results below apply to the original combined patch.
 See [setup, mechanism, limits and validation](docs/SPARSE-ATTENTION.md),
 [Quest/SparQ setup and measured checks](docs/QUEST-SPARQ.md),
 [`patches/saker-quest-sparq.patch`](patches/saker-quest-sparq.patch), and
+An additional patch now provides bounded block selection and compact KV attention for the
+`qwen35` path, including small MTP verification batches. It is disabled by default and requires
+Flash attention with F16 KV caches. Swift-27B has no trained QSA indexer, so this is a
+**training-free approximation with unmeasured model-quality and Strix Halo performance effects**.
+The original results below apply to the original combined patch, not this sparse mode.
+
+See [setup, mechanism, limits and validation](docs/SPARSE-ATTENTION.md),
+[`patches/saker-sparse-attention.patch`](patches/saker-sparse-attention.patch), and
 [`scripts/benchmark-sparse.py`](scripts/benchmark-sparse.py).
 
 ## Results

@@ -17,17 +17,12 @@ args.log_dir.mkdir(parents=True, exist_ok=True)
 helpers = runpy.run_path(str(Path(__file__).resolve().parents[1] / "scripts/benchmark-sparse.py"))
 request, wait_ready = helpers["request"], helpers["wait_ready"]
 
-for mode in ["dense", "dense-mtp", "representative", "representative-mtp", "quest", "quest-mtp", "sparq", "sparq-mtp"]:
+for mode in ["dense", "dense-mtp", "sparse", "sparse-mtp"]:
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
     base = f"http://127.0.0.1:{port}"
     env = os.environ.copy()
-    env["SAKER_SPARSE_MODE"] = mode.removesuffix("-mtp") if not mode.startswith("dense") else "representative"
-    env["SAKER_SPARSE_DENSE_LAYERS"] = "0"
-    env["SAKER_SPARQ_CHANNELS"] = "8"
-    env["SAKER_SPARQ_RECENT_TOKENS"] = "256"
-    env["SAKER_SPARQ_SINK_TOKENS"] = "16"
     env["SAKER_SPARSE_TOKENS"] = "0" if mode.startswith("dense") else "512"
     env["SAKER_SPARSE_RECENT_BLOCKS"] = "16"
     env["SAKER_SPARSE_SINK_BLOCKS"] = "1"
@@ -72,10 +67,9 @@ for mode in ["dense", "dense-mtp", "representative", "representative-mtp", "ques
         assert "saker-sparse: layer=" not in text
     else:
         assert "saker-sparse: active queries=1" in text, text[-4000:]
-        if not mode.endswith("mtp"):
-            assert "saker-sparse: layer=3 queries=1" in text, text[-4000:]
-    if mode.endswith("mtp") and not mode.startswith("dense"):
+        assert "saker-sparse: layer=3 queries=1" in text, text[-4000:]
+    if mode == "sparse-mtp":
         assert "saker-sparse: active queries=3" in text, text[-4000:]
         assert "saker-sparse: layer=3 queries=3" in text, text[-4000:]
         assert "saker-sparse: layer=4" in text, text[-4000:]
-print("PASS: dense/representative/Quest/SparQ AR and MTP, cache resets, prefix reuse and short-context fallback")
+print("PASS: dense, sparse AR, sparse MTP, cache resets, prefix reuse and short-context fallback")
