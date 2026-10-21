@@ -24,7 +24,7 @@ def wait_ready(proc, base, timeout):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if proc.poll() is not None:
-            raise RuntimeError(f"llama-server exited with code {proc.returncode}; inspect its log")
+            raise RuntimeError("llama-server exited; inspect its log")
         try:
             if request(base, "/health", timeout=2).get("status") == "ok":
                 return
@@ -45,20 +45,14 @@ def main():
     parser.add_argument("--predict", type=int, default=128)
     parser.add_argument("--repetitions", type=int, default=3)
     parser.add_argument("--budget", type=int, default=2048)
-    parser.add_argument("--selectors", choices=["representative", "quest", "sparq"], nargs="+", default=["representative", "quest", "sparq"])
-    parser.add_argument("--channels", type=int, default=32)
-    parser.add_argument("--dense-layers", type=int, default=2)
     parser.add_argument("--shortlist", type=int, default=3584)
     parser.add_argument("--gpu-layers", type=int, default=99)
     parser.add_argument("--threads", type=int, default=8)
     parser.add_argument("--port", type=int, default=18089)
     parser.add_argument("--startup-timeout", type=int, default=300)
-    parser.add_argument("--no-warmup", action="store_true", help="skip model startup warmup (benchmark warmup requests still run)")
     parser.add_argument("--reverse-arms", action="store_true", help="reverse run order to check thermal drift")
     parser.add_argument("--modes", choices=["ar", "mtp"], nargs="+", default=["ar", "mtp"])
     args = parser.parse_args()
-    if not 1 <= args.channels <= 4096 or not 0 <= args.dense_layers <= 256:
-        parser.error("channels must be 1..4096 and dense-layers must be 0..256")
     if min(args.depths) < 1 or args.predict < 2 or args.repetitions < 1:
         parser.error("depths/repetitions must be positive and predict must be at least 2")
     if args.budget < 288 or args.budget > 8192 or args.budget % 16:
@@ -79,16 +73,10 @@ def main():
     with args.output.open("x", encoding="utf-8") as output:
         tokens = None
         for mode in (list(reversed(args.modes)) if args.reverse_arms else args.modes):
-            for selector in (list(reversed(["dense"] + args.selectors)) if args.reverse_arms else ["dense"] + args.selectors):
-                sparse = selector != "dense"
-                arm = f"{mode}-{selector}"
+            for sparse in ([True, False] if args.reverse_arms else [False, True]):
+                arm = f"{mode}-{'sparse' if sparse else 'dense'}"
                 log_path = args.output.with_name(args.output.name + f".{arm}.log")
                 env = os.environ.copy()
-                env["SAKER_SPARSE_MODE"] = selector if sparse else "representative"
-                env["SAKER_SPARSE_DENSE_LAYERS"] = str(args.dense_layers)
-                env["SAKER_SPARQ_CHANNELS"] = str(args.channels)
-                env["SAKER_SPARQ_RECENT_TOKENS"] = "256"
-                env["SAKER_SPARQ_SINK_TOKENS"] = "16"
                 env["SAKER_SPARSE_TOKENS"] = str(args.budget if sparse else 0)
                 env["SAKER_SPARSE_RECENT_BLOCKS"] = "16"
                 env["SAKER_SPARSE_SINK_BLOCKS"] = "1"
@@ -101,8 +89,6 @@ def main():
                            "-ctk", "f16", "-ctv", "f16", "--no-webui", "--temp", "0"]
                 if mode == "mtp":
                     command += ["--spec-type", "draft-mtp", "--spec-draft-n-max", "2"]
-                if args.no_warmup:
-                    command += ["--no-warmup"]
                 proc = None
                 try:
                     with log_path.open("x", encoding="utf-8") as log:
@@ -120,7 +106,7 @@ def main():
                                        "temperature": 0, "seed": 1234, "cache_prompt": False,
                                        "ignore_eos": True, "stream": False}
                             request(base, "/completion", dict(payload, n_predict=32))
-                            if sparse and ("saker-sparse: active" not in log_path.read_text(encoding="utf-8", errors="replace") or f"mode={selector}" not in log_path.read_text(encoding="utf-8", errors="replace")):
+                            if sparse and "saker-sparse: active" not in log_path.read_text(encoding="utf-8", errors="replace"):
                                 raise RuntimeError("sparse graph was never used; inspect architecture and build")
                             for repeat in range(args.repetitions):
                                 start = time.monotonic()
@@ -134,7 +120,6 @@ def main():
                                 content = result.get("content", "")
                                 row = {"arm": arm, "depth": depth, "repeat": repeat,
                                        "budget": args.budget if sparse else 0,
-                                       "selector": selector, "channels": args.channels, "dense_layers": args.dense_layers,
                                        "wall_seconds": time.monotonic() - start,
                                        "timings": timings, "content": content,
                                        "output_sha256": hashlib.sha256(content.encode()).hexdigest(),
@@ -146,7 +131,7 @@ def main():
                                 output.write(json.dumps(row) + "\n")
                                 output.flush()
                                 print(arm, depth, repeat, timings["predicted_per_second"], flush=True)
-                    if sparse and ("saker-sparse: active" not in log_path.read_text(encoding="utf-8", errors="replace") or f"mode={selector}" not in log_path.read_text(encoding="utf-8", errors="replace")):
+                    if sparse and "saker-sparse: active" not in log_path.read_text(encoding="utf-8", errors="replace"):
                         raise RuntimeError("sparse graph was never used; inspect model architecture and build")
                 finally:
                     if proc is not None:
