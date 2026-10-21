@@ -4,6 +4,22 @@ Patches for `llama.cpp` (Vulkan) that make **native MTP speculative decoding** f
 gfx1151 APU, plus a drop-in **loop guard** that stops a model stuck repeating itself and continues
 the answer.
 
+The original combined patch is **349 lines across 9 files** (`patches/saker-combined.patch`), applied on top of
+llama.cpp `9d57ce456`.
+
+## Experimental sparse attention (opt-in)
+
+An additional patch now provides bounded block selection and compact KV attention for the
+`qwen35` path, including small MTP verification batches. It is disabled by default and requires
+Flash attention with F16 KV caches. Swift-27B has no trained QSA indexer, so this is a
+**training-free approximation with unmeasured model-quality and Strix Halo performance effects**.
+The original results below apply to the original combined patch, not this sparse mode.
+
+See [setup, mechanism, limits and validation](docs/SPARSE-ATTENTION.md),
+[`patches/saker-sparse-attention.patch`](patches/saker-sparse-attention.patch), and
+[`scripts/benchmark-sparse.py`](scripts/benchmark-sparse.py).
+
+## Results
 Target: **Swift-1.5 Qwen3.8-27B** (dense, qwen35 hybrid GDN + full attention, 64 trunk layers + 1
 MTP/nextn layer, hidden 5120), IQ2_S-mtp GGUF, unmodified.
 
