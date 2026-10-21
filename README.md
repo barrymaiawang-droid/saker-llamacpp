@@ -4,8 +4,20 @@ Speculative-decoding and GEMM-tuning patches to llama.cpp for the IQ2_S-mtp GGUF
 **Swift-1.5 Qwen3.8-27B** (dense, qwen35 hybrid GDN/full-attention, 64+1 layers, hidden 5120,
 native 1-layer MTP) on an AMD Strix Halo APU (gfx1151, RDNA3.5, 40 CU) under Vulkan.
 
-The change is **349 lines across 9 files** (`patches/saker-combined.patch`), applied on top of
+The original combined patch is **349 lines across 9 files** (`patches/saker-combined.patch`), applied on top of
 llama.cpp `9d57ce456`.
+
+## Experimental sparse attention (opt-in)
+
+An additional patch now provides bounded block selection and compact KV attention for the
+`qwen35` path, including small MTP verification batches. It is disabled by default and requires
+Flash attention with F16 KV caches. Swift-27B has no trained QSA indexer, so this is a
+**training-free approximation with unmeasured model-quality and Strix Halo performance effects**.
+The original results below apply to the original combined patch, not this sparse mode.
+
+See [setup, mechanism, limits and validation](docs/SPARSE-ATTENTION.md),
+[`patches/saker-sparse-attention.patch`](patches/saker-sparse-attention.patch), and
+[`scripts/benchmark-sparse.py`](scripts/benchmark-sparse.py).
 
 ## Results
 
