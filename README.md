@@ -9,14 +9,16 @@ llama.cpp `9d57ce456`.
 
 ## Experimental sparse attention (opt-in)
 
-An additional patch now provides bounded block selection and compact KV attention for the
-`qwen35` path, including small MTP verification batches. It is disabled by default and requires
-Flash attention with F16 KV caches. Swift-27B has no trained QSA indexer, so this is a
-**training-free approximation with unmeasured model-quality and Strix Halo performance effects**.
-The original results below apply to the original combined patch, not this sparse mode.
+The sparse patches provide three selectable modes for `qwen35`: the original representative
+heuristic, **Quest** page bounds, and **SparQ** channel/token selection. They include small MTP
+verification batches, remain disabled by default, and require Flash attention with F16 KV caches.
+These are training-free approximations. CPU reference, cache/MTP integration and small-model
+quality checks are supplied; Swift-27B quality and Strix Halo throughput remain unmeasured.
+The original results below apply to the original combined patch.
 
 See [setup, mechanism, limits and validation](docs/SPARSE-ATTENTION.md),
-[`patches/saker-sparse-attention.patch`](patches/saker-sparse-attention.patch), and
+[Quest/SparQ setup and measured checks](docs/QUEST-SPARQ.md),
+[`patches/saker-quest-sparq.patch`](patches/saker-quest-sparq.patch), and
 [`scripts/benchmark-sparse.py`](scripts/benchmark-sparse.py).
 
 ## Results
