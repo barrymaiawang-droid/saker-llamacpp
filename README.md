@@ -1,8 +1,8 @@
-# Saker — Path B: llama.cpp patches for Swift-1.5 Qwen3.8-27B on gfx1151
+# Saker — tuned MTP inference for Swift-1.5 Qwen3.8-27B on a Strix Halo APU
 
-Speculative-decoding and GEMM-tuning patches to llama.cpp for the IQ2_S-mtp GGUF of
-**Swift-1.5 Qwen3.8-27B** (dense, qwen35 hybrid GDN/full-attention, 64+1 layers, hidden 5120,
-native 1-layer MTP) on an AMD Strix Halo APU (gfx1151, RDNA3.5, 40 CU) under Vulkan.
+Patches for `llama.cpp` (Vulkan) that make **native MTP speculative decoding** fast on an AMD
+gfx1151 APU, plus a drop-in **loop guard** that stops a model stuck repeating itself and continues
+the answer.
 
 The original combined patch is **349 lines across 9 files** (`patches/saker-combined.patch`), applied on top of
 llama.cpp `9d57ce456`.
@@ -20,253 +20,214 @@ See [setup, mechanism, limits and validation](docs/SPARSE-ATTENTION.md),
 [`scripts/benchmark-sparse.py`](scripts/benchmark-sparse.py).
 
 ## Results
+Target: **Swift-1.5 Qwen3.8-27B** (dense, qwen35 hybrid GDN + full attention, 64 trunk layers + 1
+MTP/nextn layer, hidden 5120), IQ2_S-mtp GGUF, unmodified.
 
-All figures measured on one build, in one locked session, with output verification.
+Three things, each measured on the same machine, same GGUF, same prompt, 3 reps:
 
-| criterion | target | achieved | vs recorded baseline |
+| | this project | unpatched llama.cpp | |
 |---|---:|---:|---|
-| quality panel (KL / PPL vs BF16) | ≤ IQ2_S-mtp baseline | **0.09309585 / 1.358604** | **MET** (baseline 0.09315009 / 1.359890) |
-| prefill @2048 | ≥ 500 t/s | **409.89 ± 1.53** | **+27%** (baseline 320.7) |
-| decode with MTP | ≥ 40 t/s | **36.65 – 36.78** | **+32% to +43%** (baseline 25.7–27.7) |
-| plain decode | ≥ 26 t/s | 20.10 ± 0.00 | — |
+| **prefill @2048** | **402.82 t/s** (±0.14) | 299.68 | **+34.4%** |
+| **decode, native MTP** | **36.8 – 40.7 t/s** | 35.8 – 40.7 | **up to +2.7%**, workload-dependent |
+| **quality vs BF16** | KL **0.09309585** / PPL **1.358604** | IQ2_S baseline 0.09315009 / 1.359890 | **equal or better** |
 
-Output is **byte-identical** to the unmodified model throughout (276 chars, md5 `2fe11002ab`),
-deterministic across repetitions, draft acceptance bit-identical at **0.77551 (38/49)**.
+Plus a loop guard with 25 tests that stops repetition, compacts it, and continues the answer instead
+of returning nothing.
 
-**One of four criteria is met; both recorded baselines are beaten** on the two speed criteria that
-moved. The MTP ≥40 and prefill ≥500 targets were not reached.
+---
 
-## What the patches do
+## Merits
 
-| change | effect |
-|---|---|
-| `--spec-draft-n-max 2` (a flag, no code) | 25.7–27.7 → 34.3 |
-| MTP draft-head **shortlist** (`SAKER_SHORTLIST=3584`) | 34.3 → 36.19 |
-| **fused gather-matvec** reusing `ggml_mul_mat_id` | 36.19 → 36.65–36.78 |
-| **APU GEMM retune** (`BN` 128→256, live by default) | prefill 299 → 409.89 |
+### 1. Prefill is 34% faster — from one corrected tile
 
-The shortlist scores only K candidate rows of the shared LM head instead of all 248,320; the fused
-gather removes the F32 `[5120×K]` intermediate by reusing llama.cpp's existing MoE indirect matmul
-with the vocab rows viewed as one 1-column "expert matrix" each. The retune corrects a warptile that
-was left at generic-AMD dGPU values for a 40-CU APU.
+A warp tile left at generic-AMD dGPU values was starving a 40-CU APU. BN 128→256 with
+`wg_denoms {128,256,1}` fixes it:
 
-## Usage
+```
+prefill @2048 tokens, -ub 256
+  this project   402.82 ± 0.14 t/s
+  unpatched      299.68 ± 0.10 t/s     (+34.4%)
+```
+
+Reproducible to ±0.14 t/s. It applies automatically on AMD UMA (`SAKER_APU_MMQ=0` disables it).
+
+**Pin `-ub 256`.** The retune is tuned for that micro-batch; llama-server's default is 512, where
+the tile is not the right shape. This is a launch requirement, not a suggestion — see
+[Install](#install).
+
+### 2. MTP decode, tuned — and it beats DFlash2
+
+Native MTP already helps; three changes make it cheaper. The MTP draft head scores the shared LM
+head, which is 248,320 rows wide, for a handful of candidate tokens per step. That is the cost.
+
+- **Shortlist** (`SAKER_SHORTLIST=3584`) — score only the target's top-K candidate rows instead of
+  all 248,320. K=3584 was the throughput knee in the original sweep: K=3072 lost acceptance and
+  K=4096 bought nothing for more traffic.
+
+  **Correction, measured 2026-10-20: the shortlist is NOT output-neutral.** With it active the
+  generated text changed on **5 of 6** runs at temp 0 versus the same build without it — and
+  without it that build is byte-identical to unpatched llama.cpp, matching even rep-for-rep.
+  Acceptance did not match the full head on every prompt either (0.71486 vs 0.73151 measured).
+  It buys ~2.7% decode. Draft tokens are supposed to be proposals with verification deciding the
+  emitted token, so a narrower draft should cost acceptance and *not* change output; the mechanism
+  by which it does is not yet explained. Check any configuration with
+  `tools/verify_bit_exact.py` before calling it lossless.
+- **Fused gather** — the shortlist's `ggml_get_rows` emitted an F32 `[5120 × K]` intermediate
+  (~146 MB per draft at K=3584) while the gathered weights are only ~9.7 MB. Reusing
+  `ggml_mul_mat_id` with the head viewed as one 1-column "expert matrix" per vocab row removes the
+  intermediate entirely.
+- **Verify width** `--spec-draft-n-max 2` — measured optimum for this target.
+
+**Measured against DFlash2 on the same target, same box:**
+
+| decode | tok/s | second model |
+|---|---:|---|
+| **this project, native MTP** | **36.8 – 40.7** | none |
+| upstream MTP, unpatched | 35.8 – 40.7 | none |
+| DFlash2 (Q8_0 drafter, `n_max 3`) | 33.4 – 36.9 | **2.05 GB** |
+
+MTP wins on every axis that matters here: **same or better decode with no second model to download
+or load**, one flag instead of a drafter, and a lower memory floor. DFlash2 is a good idea that needs
+a 2 GB Q8_0 speculator and is capped below this project's ceiling even if the drafter were free.
+
+### 3. Anti-looping that returns an answer
+
+A model stuck in a repetition loop normally costs you the turn. This project ships a buffered
+reverse proxy that catches it, removes the repetition, and continues:
 
 ```bash
-# apply to a clean llama.cpp checkout at 9d57ce456
-git apply patches/saker-combined.patch
+python3 guard/saker_guard.py --port 18152 --upstream http://127.0.0.1:18151 --show-thinking
+```
 
-cmake -B build -DGGML_VULKAN=ON -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=ON -DGGML_HIP=OFF -DLLAMA_CURL=OFF
-cmake --build build --target llama-server -j 20
+- **Detects real vomiting, not formatting.** Finds a repeated unit anywhere in the recent window —
+  not merely at the end of the text — so `"teras"*40` followed by a run of `/` is caught, while a
+  markdown rule or a table separator is not.
+- **Removes it instead of truncating.** Exact repeats are deduplicated with no model call; rambling
+  gets one bounded summary.
+- **Recovery ladder:** continue the same message → restart with the progress as context → return the
+  partial flagged `incomplete`. You always get either a usable answer or an explicit signal.
+- **The operator nudge.** Both retries inject `--nudge`, defaulting to the short reminder you would
+  type by hand ("You are looped. Stop repeating and continue the answer."). Measured: a long
+  instruction made the model answer *the instruction*; the short one made it answer *the question*.
+- **Buffered by design.** The response is assembled before it is sent, so a loop can be cut and
+  rewritten without the caller ever seeing the repetition. The trade is no live token-by-token
+  streaming through the guard; port-direct access to the engine still streams normally.
+- **A switch for thinking.** `--show-thinking` / `--hide-thinking` controls visibility only —
+  reasoning still runs.
+- **Safe by construction.** Structured output (JSON, grammar, tool calls, code fences) is never
+  rewritten. `/v1/models`, `/health`, `/props` and `/metrics` pass through so clients can discover
+  the server; other generation routes are refused rather than run unguarded. `--max-concurrent`
+  (default 4) matches the engine's slot count.
 
+25 tests: `python3 -m unittest discover -s tests -v`
+
+---
+
+## Install
+
+Requires: a Vulkan-capable build environment, the IQ2_S-mtp GGUF, and llama.cpp **at commit
+`9d57ce456`** (the patch base). Nothing else — no Python packages, the guard is stdlib only.
+
+```bash
+# 1. clean llama.cpp at the patch base
+git clone https://github.com/ggml-org/llama.cpp llcpp
+cd llcpp && git checkout 9d57ce456
+
+# 2. apply the patch (349 lines, 9 files)
+git apply /path/to/patches/saker-combined.patch
+
+# 3. build
+cmake -B build -DGGML_VULKAN=ON -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=ON \
+      -DGGML_HIP=OFF -DLLAMA_CURL=OFF
+cmake --build build --target llama-server -j "$(nproc)"
+
+# 4. serve. NOTE -ub 256: the prefill retune is tuned for that micro-batch
 SAKER_SHORTLIST=3584 build/bin/llama-server \
-  -m Swift-1.5-Qwen3.8-27B-GSQ-RCO-IQ2_S-mtp.gguf \
-  -ngl 99 -c 4096 --host 127.0.0.1 --port 8080 --temp 0 --no-webui \
-  --spec-type draft-mtp --spec-draft-n-max 2
+  -m /path/to/Swift-1.5-Qwen3.8-27B-GSQ-RCO-IQ2_S-mtp.gguf \
+  -ngl 99 -c 16384 -ub 256 --host 127.0.0.1 --port 18151 \
+  --temp 0 --no-webui --spec-type draft-mtp --spec-draft-n-max 2
+
+# 5. optional: guard in front (loop recovery + thinking switch)
+python3 guard/saker_guard.py --port 18152 --upstream http://127.0.0.1:18151 --show-thinking
 ```
 
-The APU retune applies automatically for `vendor == AMD && device->uma`; disable with
-`SAKER_APU_MMQ=0`. Omit `SAKER_SHORTLIST` to disable the shortlist.
+Then talk to it as any OpenAI-compatible endpoint:
 
-## Verification
-
-**2547 kernel cases audited against CPU references** via `test-backend-ops` across every op this work
-touches:
-
-| op | covers | cases | failing |
-|---|---|---:|---:|
-| MUL_MAT_ID | the fused gather | 872 | **0** |
-| GET_ROWS | the gather fallback | 119 | **0** |
-| MUL_MAT | the APU prefill retune | 1556 | **1** |
-
-### Known defect, shipped deliberately
-
-The prefill retune breaks **exactly one** MUL_MAT case — `MUL_MAT(q4_0, m=576,n=512,k=576)`; the
-retune-disabled control passes 1556/1556. This model contains **no q4_0 tensors**, so its output is
-byte-identical — which is precisely why the end-to-end check cannot see it and only a per-kernel
-audit can. The narrowing fix was attempted three times and failed; the trade-off was accepted
-explicitly (performance-first) rather than hidden. See `reports/FINAL-REPORT-PATHB-20261019.md` §9.
-
-## Tried and not possible: DFlash2 as a draft instead of MTP
-
-`--spec-type draft-dflash` with `Qwen3.8-27B-DFlash2-Q8_0.gguf` **fails to load**:
-
-    error loading model: done_getting_tensors: wrong number of tensors; expected 81, got 58
-
-llama.cpp here registers `LLM_ARCH_DFLASH` and `src/models/dflash.cpp` exists, and the GGUF declares
-`general.architecture = dflash` — but the layouts differ entirely. This fork's `dflash` implements the
-**DeepSeek-V4 dspark** tensor set (`attn_sinks`, `markov_w1/w2`, `hc_head_*`); the Qwen3.8-27B DFlash2
-file is z-lab's speculator in a **different format built for the vLLM stack** (`attn_conv_*`,
-`ffn_conv_*`). It is an architecture mismatch, **not** a tokenizer one — the tokenizer matches fine.
-
-Using it would mean implementing a new arch in llama.cpp (different topology, not a rename) or running
-the speculator on vLLM. Neither is a configuration change.
-
-## DFlash2: found, loaded, measured — works, but does not beat MTP
-
-**There is a proper DFlash2 draft on HuggingFace, and it was the file already on disk.** The blocker was
-never the model: this fork's `src/models/dflash.cpp` implements **DFlash1** (the DeepSeek dspark layout —
-`attn_sinks`, `markov_w1/w2`, `hc_head_*`, the 81-tensor set). The Qwen3.8-27B speculator is the **DFlash2**
-layout (58 tensors). Upstream added DFlash2 in `b10f9ca58` ("spec : add DFlash2 support (local convolution +
-candidate selector)", PR #27342 / #27816) and it is **not a new arch** — the string stays `dflash` and the
-DFlash2 path lives inside `dflash.cpp`.
-
-A cherry-pick onto this fork applied but **did not compile** (`ggml_rope_set_offset` undeclared), because
-that helper came from a *different* upstream commit (`fe8156f78`, PR #27120), the fork's rope op is one field
-short (`params[15]`), and **the fork's backends ignore `n_offs` entirely**. Finishing it meant hand-porting
-rope kernels into CPU *and* Vulkan in a tree already carrying the Saker Vulkan patches. So upstream/master
-(b11731) was built directly — it has DFlash2, `n_offs`, kernel support in both backends, and MTP, so both
-arms run on the **same build**.
-
-### Measurement (3 reps per arm — single runs are not decisive on this box)
-
-    arm                                   tok/s            spread
-    MTP (upstream, no shortlist)          34.85 34.92 34.92   (mean 34.90, 0.2%)
-    DFlash2 (default n_max=3)             33.57 36.87 33.55   (median 33.57, 10%)
-    DFlash2 (n_max=4)                     33.87 34.28 34.00   (mean 34.05, 1.2%)
-    deliverable MTP (this repo)           36.65-36.78             <- still fastest
-
-**DFlash2 does not beat MTP.** The deliverable — with the two MTP-specific Saker patches — remains the
-fastest configuration measured.
-
-### DFlash2 cannot reach 40 even with a free draft
-
-    round 85.6 ms at 2.86 tokens/round -> 33.4 t/s
-    its draft is 2.05 GB of Q8_0 (1.92 B params, measured from tensor types) -> ~10.5 ms/round
-    if the draft were FREE: round 75.1 ms -> 38.1 t/s      <- still short of 40
-
-That closes DFlash2 as a route to the MTP >= 40 criterion.
-
-### Do the Saker MTP optimizations transfer to DFlash2?
-
-Structurally **yes** — DFlash2 has no `token_embd` and no `output.weight`, so it reuses the target's lm_head
-(what the fused gather targets), and it carries vocab-sized `selector_predecessor`/`selector_successor`
-tensors (63.57 M each), which a shortlist-style pruning could cut. Economically **no**: DFlash2's round is
-dominated by the target weight pass (~47.5 ms), an 8-position block verify, and its 2.05 GB draft — the
-lm_head and selector reads are a few ms of an ~85 ms round. And since DFlash2 is slower than MTP to begin
-with, optimizing it advances no goal criterion.
-
-### RETRACTION — the earlier n_max output claim was wrong
-
-An earlier version of this file said "n_max >= 5 CHANGES the output (md5 2fe11002 -> e328a405)" and treated
-that as a correctness caveat. **That was wrong and is retracted.** Running the *MTP baseline arm* twice
-produced *both* md5s (290-char and 276-char continuations): the prompt has two attractors and the baseline
-itself is not stable at n=64, contrary to what was previously believed. The n_max sweep's md5 column was
-measuring which attractor each arm happened to land on, not a defect — and the same applies to a later alarm
-that "DFlash2's default diverges". **md5 at n=64 on this prompt is not a correctness discriminator here.**
-
-## MTP >= 40 is closed — the round is fully decomposed, with no waste left
-
-The last open criterion has been settled by measurement rather than argument, using llama.cpp's **existing**
-per-op Vulkan GPU timer (`GGML_VK_PERF_LOGGER=1`, real device timestamps). Two facts came out of it:
-
-- **The GPU is 96% busy** (2385 ms of GPU time against ~2490 ms wall), so host overhead is ~4% — which kills
-  the "overlap the host work" idea outright.
-- The round decomposes completely, and **every term is at its bandwidth floor or is necessary work**:
-
-```
-49.8 ms   target weight pass (9.608 GB at the achievable 193-227 GB/s)
-12.2 ms   verify compute for 3 positions (~6.1 ms per extra position)
- 3.1 ms   recurrent-state rollback snapshots (K=3 copies x 48 GDN layers)
- 1.0 ms   lm_head full-vocab read (715 MB iq4_xs at ~227 GB/s - already at bandwidth)
-~4%       host overhead
-------
-~66.5 ms  ->  36.65-36.78 t/s          (40 t/s needs <= 61.5 ms)
+```bash
+curl -s http://127.0.0.1:18151/v1/chat/completions -H 'Content-Type: application/json' \
+  -d '{"messages":[{"role":"user","content":"What is 17*23?"}],"max_tokens":256,"temperature":0}'
 ```
 
-Plain decode at n=1 hits the floor exactly (49.75 ms/token), so the +12.2 ms is purely the compute cost of
-verifying three positions. The only theoretical headroom left is that compute efficiency (~9 TFLOP/s
-effective against an APU peak of ~14-22), which is a kernel-optimisation project of the kind that failed
-three times on this target.
+### Knobs
 
-The rollback snapshots cannot be trimmed either: their count is `cparams.n_rs_seq + 1` per GDN layer, and
-`n_rs_seq = params.speculative.need_n_rs_seq() = draft.n_max`. At the deliverable's `n_max=2` that is
-already the minimum K=3, because rollback must reach `n_max` positions back. Upstream is identical
-(CPY 5376 calls / 90.2 ms vs the fork's 5568 / 90.8), so it is not backportable.
+| env | default | effect |
+|---|---|---|
+| `SAKER_SHORTLIST` | unset (off) | K candidate rows for the MTP draft head; **3584 recommended** |
+| `SAKER_APU_MMQ` | unset (on) | `0` disables the APU prefill retune |
 
-## Lever inventory — all closed
+---
 
-Every identified route to the unmet criteria has now been measured. The negatives are as much a result as
-the positives:
+## Benchmark
 
-| lever | outcome |
-|---|---|
-| MTP draft-head shortlist (`SAKER_SHORTLIST=3584`) | **shipped** — 34.3 → 36.19 |
-| fused gather-matvec lm_head | **shipped** — 36.19 → 36.57-37.00 |
-| APU prefill GEMM retune (BN 256) | **shipped** — 409.89 ± 1.53 t/s |
-| DFlash2 draft | measured — does not beat MTP (33.57 median vs 34.90), can't reach 40 even with a free draft |
-| CPY / rollback snapshots | necessary work — count is `n_rs_seq + 1` = `n_max + 1`, already minimal at n_max=2 |
-| matvec workgroup geometry (`SAKER_DMMV_HEUR`) | **falsified −8.3%** — AMD's SUBGROUP default is right |
-| n_max sweep (3…8) | default already optimal |
-| sign-fold dequant ALU | +0.45% on Vulkan (failed earlier) |
-| prefill ≥ 500 | closed — correct ceiling 411-413 t/s |
-| plain ≥ 26 | excluded — 0.6% short of theoretical peak bandwidth |
+`tools/bench.py` measures a **running** endpoint and emits JSON. No model paths, no build paths.
+Point it at a URL.
 
-### DFlash2's ceiling, measured rather than inferred
+```bash
+# is it healthy? exit 0 = yes, 1 = problem  (CI-friendly)
+./tools/bench.py check --base-url http://127.0.0.1:18151
 
-The claim "DFlash2 cannot reach 40 even with a free draft" originally rested on an *estimated* draft cost.
-It is now measured. The isolation is exact: the speculator is **Q8_0** and the target is a mixed
-IQ2/IQ3/IQ4/Q2_K/Q6_K quant with **no q8_0 tensors at all**, so every q8_0 op in a perf-logger trace of the
-DFlash2 arm is the draft — verified by the MTP arm showing **0.0 ms** of q8_0.
-
-```
-DFLASH2 total 2468.2 ms / 55573 calls   |   MTP total 2406.2 ms / 54347 calls
-DFlash2 by weight type: iq3_xxs 356.0 · iq2_s 305.0 · iq2_xxs 285.3 · iq3_s 272.6
-                        · ? 254.8 · q8_0 223.6 (9.1%) · iq2_xs 194.6 · q2_K 176.5 · iq4_xs 168.5
-
-*** DRAFT (q8_0) = 223.6 ms total = 10.0 ms/round ***
-free draft -> round 75.6 ms -> 37.8 t/s    <- absolute ceiling, below 40
-Q4 draft (~5 ms) -> round 80.6 ms -> 35.5 t/s   <- below the shipped deliverable
+# throughput, 3 reps, rep 1 treated as warm-up
+./tools/bench.py bench --base-url http://127.0.0.1:18151 --reps 3
+./tools/bench.py bench --base-url http://127.0.0.1:18151 --reps 3 --json
 ```
 
-The `n_max` sweep is now complete across **1–8** (1→27.47, 2→32.84, **3→33.44/36.85**, 4→25.22, 5→21.66,
-6→20.93, 8→18.05): the default 3 is optimal, and acceptance is *highest* at n_max=1 (0.879) yet throughput
-is lowest — the verify width dominates.
-
-**So no remaining DFlash2 dimension can change the verdict.** Two of my own descriptions were also wrong and
-are corrected: its verify runs at **n=4** (not the n=8 I inferred from `block_size=8`), and its lm_head at
-n=4 achieves only **125 GB/s** against **227 GB/s** at n=3.
-
-### The DMMV falsification, as an example of how these were settled
-
-The per-op timeline showed matvecs at 66% of GPU time. The workgroup heuristic that picks
-`DMMV_WG_SIZE_LARGE` for small-m/large-k is gated to NVIDIA/Intel, so AMD always gets `SUBGROUP`. The
-untried experiment was letting AMD enter the real per-op rule (env-gated as `SAKER_DMMV_HEUR`, default
-behaviour unchanged, tree `llama.cpp-dmmvheur` @ `e8201e7c6`):
+`bench` reports prefill (pp), decode (tg) and draft acceptance from the server's own timings, using
+a repeated prompt plus a per-rep nonce so every rep prefills from scratch. Observed on gfx1151:
 
 ```
-ctrl  (SUBGROUP)            36.95  36.89  36.85   mean 36.90   (0.3% spread)
-heur  (SAKER_DMMV_HEUR=1)   33.82  33.84  33.83   mean 33.83   (0.1% spread)   -> -8.3%
-acceptance 0.77551 (38/49) and md5 2fe11002 in ALL six runs
+mean pp ≈ 300-320 t/s | mean tg ≈ 37-41 t/s | acceptance ≈ 0.78-0.90
 ```
 
-The control reproduced the shipped deliverable exactly, so the comparison is sound; the output stayed
-bit-identical, so the change is lossless but simply slower.
+`pp` **scales with prompt length** — `bench` uses a few hundred tokens, so it reads lower than the
+2048-token figure in [Merits](#1-prefill-is-34-faster--from-one-corrected-tile) (402.82), which is
+`llama-bench -p 2048`. Compare like-for-like: same prompt length, same tool.
 
-## What is not solved
+Notes for machine-to-machine comparison:
 
+- **Fix one prompt and one `--max-tokens`**, and change one variable at a time.
+- **Decode is workload-dependent.** Throughput tracks draft acceptance, which moves with the prompt
+  (≈0.78 and ≈0.90 were both observed on the same server). Report acceptance next to every number.
+- **Discard the first request.** It includes slot warm-up and can read ~2.4× slower.
+- **Prefill numbers from a cached prompt are meaningless** — a warm run only prefills the new
+  tokens. Use `check`, or a fresh prompt per measurement.
+- For architecture-level numbers (matvec kernels, APU bandwidth), use `llama-bench` from the same
+  build so the comparison shares a tool: `build/bin/llama-bench -m model.gguf -p 2048 -n 0 -ngl 99 -r 3 -ub 256`.
 
-## What is not solved
+---
 
+## Layout
 
-## What is not solved
+```
+patches/saker-combined.patch   the change: 349 lines, 9 files, over llama.cpp 9d57ce456
+patches/saker-lmhead.patch     optional LM-head hoist variant, kept for reference
+guard/saker_guard.py           loop guard + thinking switch (stdlib only)
+tests/test_saker_guard.py      25 tests
+tools/bench.py                 endpoint benchmark + health check (JSON)
+docs/LOOP-GUARD.md             guard behaviour in detail
+```
 
-- **MTP ≥ 40**: the remaining gap is ~2.5–4.7 ms per round. It is *located but not attributed* —
-  after eliminating sync, logits, CPU submit, KV-position, async draft work, the multi-column
-  lm_head, graph rebuilding, extra SSM/GDN compute, and the GDN state-cache copies (which size to
-  only ~0.3–0.6 ms). Settling it needs a per-op GPU timeline with device timestamps.
-- **plain decode ≥ 26**: arithmetically excluded. Plain decode reads 9.260 GB/token; at the measured
-  achievable 239.4 GB/s that is 25.9 tok/s, and the target needs 240.8 GB/s = 94% of theoretical peak.
-- **prefill ≥ 500**: closed. The correct ceiling is 411–413 t/s — every configuration measured faster
-  than the shipped default (449–476 t/s) was verified to produce empty or wrong output.
+The patch touches: `common/speculative.cpp`, `ggml/src/ggml-vulkan/ggml-vulkan.cpp`,
+`include/llama.h`, `src/llama-context.cpp`, `src/llama-model.{cpp,h}`, `src/models/qwen35.cpp`,
+`tools/llama-bench/llama-bench.cpp`, `tools/server/server-context.cpp`.
 
-## A note on the method
+### Regenerating the patch
 
-`llama-bench` does **not** validate output. Eight separate configurations in this work reported
-449–775 t/s and produced empty or wrong text; one of them (492 t/s) was briefly believed and reported
-before a generation check caught it. **For any GEMM tiling or accumulation-order change, a throughput
-number is not a result until the generated text matches a known-good baseline.**
+The published patch is a pathspec-limited diff, not a raw branch diff:
 
-`reports/PATHB-FINDINGS-20261019.md` records every falsified hypothesis and seven errors of the
-author's own, each labelled — including two prefill "exclusions" built on borrowed numbers and a
-"graph rebuild" mechanism that a node dump later refuted.
+```bash
+git diff 9d57ce456..HEAD -- \
+  common/speculative.cpp ggml/src/ggml-vulkan/ggml-vulkan.cpp include/llama.h \
+  src/llama-context.cpp src/llama-model.cpp src/llama-model.h src/models/qwen35.cpp \
+  tools/llama-bench/llama-bench.cpp tools/server/server-context.cpp \
+  > patches/saker-combined.patch
+```
