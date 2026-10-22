@@ -2,8 +2,6 @@
 
 This is an opt-in approximation for the `qwen35` model path, supplied as an additional patch to llama.cpp `9d57ce456c94d241dde672b2db9cf18879766568` after Saker's existing combined patch. It is disabled by default.
 
-This page describes the original `representative` selector. The apply script also installs `saker-quest-sparq.patch`; see [Quest and SparQ](QUEST-SPARQ.md) for the new modes, updated validation and quality results. Leaving `SAKER_SPARSE_MODE` unset retains the representative selector.
-
 **This is not native QSA, is not lossless, and has no measured Strix Halo speed or model-quality result yet.** Swift-27B has no trained Flash-Next QSA indexer to transplant. The original Saker quality and throughput measurements do not apply to this mode.
 
 ## Mechanism
@@ -93,7 +91,6 @@ python3 /path/to/saker-llamacpp/scripts/benchmark-sparse.py \
   --budget 2048 --output results/sparse-2048.jsonl
 ```
 
-This starts and stops its own localhost server for dense, representative, Quest and SparQ in AR and MTP modes. To limit it to the original experiment, pass `--selectors representative --dense-layers 0`. It uses identical token IDs, a warm-up at each depth, a fixed generation length, and fresh prompt evaluation for each measured request. It refuses an undersized corpus rather than repeating it, verifies actual evaluated context length, and records timings, generated text, hashes, settings and commands. Trace logging is enabled to confirm actual sparse input activation before recording results. Keep the same model, driver, clocks and power settings; repeat with `--reverse-arms` if thermal drift is material.
 This starts and stops its own localhost server for dense/sparse AR and dense/sparse MTP. It uses identical token IDs, a warm-up at each depth, a fixed generation length, and fresh prompt evaluation for each measured request. It refuses an undersized corpus rather than repeating it, verifies actual evaluated context length, and records timings, generated text, hashes, settings and commands. Trace logging is enabled to confirm actual sparse input activation before recording results. Keep the same model, driver, clocks and power settings; repeat with `--reverse-arms` if thermal drift is material.
 
 The input is a raw text-completion corpus, not an automatically formatted chat. Use representative workloads; repetitive text can greatly inflate MTP acceptance. JSONL outputs contain the supplied model path and generated text, so review before sharing.
