@@ -2,6 +2,12 @@
 
 **Date:** 2026-11-02. **Status:** confirmed Vulkan arithmetic defect repaired; remaining pelican generation-quality problem unresolved. **User's next action:** let Claude continue fixing the engine.
 
+**Update, 2026-11-02 (Claude, offline review without GPU or model access):** no second engine
+defect found; see [the offline follow-up](#offline-follow-up-2026-11-02-claude) at the end and the
+[upstream delta report](item23-20261102/upstream-delta-20261102.md). One upstream-confirmed graph
+fidelity fix is published as `patches/saker-gdn-l2norm-eps.patch` (not built or installed on node
+B). The reproduction harness gained a CPU reference arm; running it is the next decisive step.
+
 ## Read this first
 
 The user wants the **generation engine** diagnosed and fixed, using the bad pelican as evidence. They explicitly rejected editing the generated HTML, adding art-specific instructions, or polishing a test result and presenting it as an engine repair. Keep the original prompt and untouched outputs as test fixtures. A prettier manually repaired page is not success.
@@ -215,3 +221,90 @@ python "$REPRO/check_scene.py" "$FRESH/pelican.html" --out "$FRESH/qa"
 The user requires codebase-memory-mcp for code discovery: index if needed, then prefer search_graph, trace_path, get_code_snippet, query_graph/search_code. It returned `Transport closed` in this session, so `rg` and source reads were used as fallback. Retry the graph in a new session; do not pretend it was available.
 
 Read the applicable AGENTS.md before editing. The llama.cpp checkout exempts private forks from upstream contribution requirements but prohibits committing/pushing without explicit user authorization and has strict upstream-PR restrictions. This handoff commit is in the Saker project, not ggml-org/llama.cpp. No upstream PR, issue or comment was sent.
+
+## Offline follow-up, 2026-11-02 (Claude)
+
+This review ran in a container with no GPU, no model file and no access to node B. It could read
+the evidence archives, the patches and upstream llama.cpp history, compile-check C++ against the
+pinned headers, and run the Python tests. It could not generate, measure fidelity or benchmark.
+Nothing on node B was changed. The codebase-memory graph tool was not available either; Git history,
+`grep` and source reads were used.
+
+### What was checked
+
+1. **The combined patch, hunk by hunk.** Outside the repaired Vulkan tile every Saker change is
+   gated on an environment variable the launcher does not set or removes. The installed engine is
+   upstream `9d57ce456` plus the tile repair. Details: upstream delta report, section 1.
+2. **Per-position fidelity, not just the mean.** The `run.log` files in `q38gsq-engine-audit.zip`
+   hold the full distribution. Corrected Vulkan vs CPU: median KL 0.000118, 99.9% 0.110, max
+   0.1428; the retune-disabled (pure upstream) arm has max 0.1485. No rare gross error hides under the
+   mean. Vulkan is faithful to the CPU implementation of the same graph on this block.
+3. **Upstream history from the pin (2026-08-14) to master (2026-11-01, 1,595 commits)** for every
+   change touching the qwen35 graph, GDN, MTP/speculative decoding, recurrent rollback, Vulkan and
+   the Qwen tool-call parser. Each relevant commit and its verdict for the installed profile is
+   tabulated in the delta report. Two independent confirmations of earlier handoff findings:
+   upstream fixed the rollback **test** to retain the anchor (`fa3c2fab3`, finding 5), and the
+   `n_rs_seq`/checkpoint fixes (`7df8b876b`, `ab3768cdc`) are no-ops for `--spec-draft-n-max 2`
+   with single-slot batches of at most three tokens (finding 6).
+4. **Patch hygiene on a real checkout of the pin.** Fresh tree + combined patch, and old tree +
+   quality fix, produce identical files. Recorded in
+   [handoff-validation-20261102b.json](item23-20261102/handoff-validation-20261102b.json).
+5. **Python tests:** 41 pass (37 existing, 4 new).
+
+### What was added
+
+- `patches/saker-gdn-l2norm-eps.patch`: backport of upstream #28068 (`5fdfa6282`). The pinned
+  qwen35 graph normalizes GDN q/k with `ggml_l2_norm`, which is `x / max(sqrt(sum x²), eps)`; the
+  reference implementation uses `x * rsqrt(sum x² + eps)`. This is the only upstream-confirmed
+  deviation of the pinned graph from the reference for this architecture, and it is invisible to
+  every CPU-versus-Vulkan comparison because both backends run the same graph. It applies on top of
+  the combined patch, on top of the quality fix, or on the pristine pin, and `qwen35.cpp` compiles
+  with it against the pinned headers. **Expected effect: far below the measured f16 noise floor**
+  (relative change `eps / (2·Σx²)` per vector). It is a faithfulness fix. It is not claimed to fix
+  the pelican, and it has not been built, measured or installed on node B.
+- `reports/item23-20261102/reproduce/probe_engine.py` and `probe_project.py`: a `--backend cpu`
+  arm that launches the same server with `-ngl 0 --device none --no-op-offload --no-kv-offload`
+  (the flags finding 2 established as necessary on this UMA system), 16 threads by default, a
+  longer startup allowance, plus `--ctx`, `--threads`, `--port` on the project replay. Covered by
+  `tests/test_probe_harness.py`.
+- `reports/item23-20261102/upstream-delta-20261102.md`: the commit survey.
+
+### Assessment
+
+The arithmetic and the serving/state paths that the installed profile exercises are faithful as far
+as every available comparison can see. The remaining evidence of an "engine quality problem" is one
+temperature-1 sample at the default effort, with about 250 tokens of reasoning before a 14 KB page,
+failing a strict geometric QA on a prompt that is a known hard generative benchmark. That is weak
+evidence of an engine defect and consistent with model/quantization capability (3.44 bits per weight).
+This has **not** been proven either way; the experiments below separate the two.
+
+### Next steps on node B, in order
+
+Stop item 23 only while a step needs the GPU exclusively (`python "$SERVICE" stop` / `start`).
+
+1. **CPU reference generation of the unchanged request** (decisive for the Vulkan path; expect well
+   under 5 tokens/s, so roughly an hour):
+
+   ```bash
+   CPU=$(mktemp -d /tmp/item23-cpu-generation.XXXXXX)
+   python "$REPRO/probe_project.py" --backend cpu --profile ar --effort medium --seed 42 \
+     --tokens 16384 --out "$CPU"
+   python "$REPRO/check_scene.py" "$CPU/pelican.html" --out "$CPU/qa"
+   ```
+
+   With temperature 1 the CPU and Vulkan samples will diverge at the first near-tie, so the
+   comparison is "does the reference implementation also fail QA", not byte identity. If it fails
+   the same checks, the engine is exonerated for this task.
+2. **Variance on the installed profile:** repeat the Vulkan MTP2 replay for seeds 1-5 and at
+   `--effort xhigh`, QA each page, keep every raw output. One failing draw is not a defect rate.
+3. **Build the GDN patch in a separate build directory** (`build-gdn`), run `test-backend-ops` and
+   the `vk-fixed` fidelity arm against the existing CPU reference, and compare its KL to the current
+   0.002961. Expect no measurable change; only install if the figures are no worse and the
+   generation replay still completes.
+4. **Higher-precision reference for the quantization question** (handoff item 2): a Q8_0 or BF16
+   GGUF of the same checkpoint on the CPU arm, `--kl-divergence-base` against IQ3_S. This is the
+   only comparison that can attribute the residual to IQ3_S rather than to the engine.
+5. **Rebase planning:** the pin is 1,595 commits behind. Upstream now has int8 coopmat1 matmul for
+   AMD RDNA3/RDNA4 (#27952), IQ3_S MMQ kernels (#28822) and several Vulkan correctness fixes. A
+   rebase supersedes maintaining the retune on an old base; re-measure the retune against #27952
+   before carrying it forward.

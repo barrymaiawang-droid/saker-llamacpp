@@ -25,6 +25,15 @@ sides of the affected column boundary.
 
 For an existing pre-repair Saker tree, apply `patches/saker-quality-fix.patch`.
 Fresh trees should use the updated combined patch. Do not apply both patches.
+
+`patches/saker-gdn-l2norm-eps.patch` is a separate, optional backport of upstream
+llama.cpp #28068: the pinned qwen35 graph normalizes the linear-attention q/k with
+`ggml_l2_norm` (no epsilon inside the root) where the reference model uses
+`x * rsqrt(sum(x*x) + eps)`. It applies on top of either path above, or on the
+pristine pin. Its expected numerical effect is far below the measured Vulkan noise
+floor; it is a faithfulness fix, not a repair for the generation-quality issue, and
+it is not yet built or installed on node B. See
+[the upstream delta report](reports/item23-20261102/upstream-delta-20261102.md).
 The performance and quality figures below predate this repair and must be
 re-measured on the corrected build. The shortlist remains an explicit,
 output-changing experiment; the item-23 launcher uses the full vocabulary.
@@ -128,7 +137,7 @@ python3 guard/saker_guard.py --port 18152 --upstream http://127.0.0.1:18151 --sh
   the server; other generation routes are refused rather than run unguarded. `--max-concurrent`
   (default 4) matches the engine's slot count.
 
-25 tests: `python3 -m unittest discover -s tests -v`
+41 tests: `python3 -m unittest discover -s tests -v`
 
 ---
 
@@ -219,6 +228,7 @@ Notes for machine-to-machine comparison:
 ```
 patches/saker-combined.patch   engine changes and regression tests over llama.cpp 9d57ce456
 patches/saker-quality-fix.patch correctness repair for an existing pre-repair tree
+patches/saker-gdn-l2norm-eps.patch optional backport of upstream #28068 (GDN q/k l2norm epsilon)
 patches/saker-lmhead.patch     optional LM-head hoist variant, kept for reference
 guard/saker_guard.py           loop guard + thinking switch (stdlib only)
 tests/test_saker_guard.py      25 tests

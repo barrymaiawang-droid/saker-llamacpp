@@ -32,9 +32,39 @@ def call(base, path, body=None, timeout=180):
         raise RuntimeError(f"{e.code}: {e.read().decode()[:1000]}") from e
 
 
+CPU_ONLY_FLAGS = ["--device", "none", "--no-op-offload", "--no-kv-offload"]
+
+
+def server_binary(args):
+    """The Vulkan build also serves the CPU arm; only HIP has its own build tree."""
+    return Path(getattr(args, "binary", None) or ROOT / "llama.cpp" / ("build-hip" if args.backend == "hip" else "build") / "bin/llama-server")
+
+
+def server_command(args, binary):
+    """Build the llama-server command for one arm.
+
+    backend "cpu" is the reference implementation: no GPU device, no operation offload and no KV
+    offload. On this UMA system "-ngl 0" alone still offloads work to the GPU, so the three explicit
+    flags are required (see the handoff, finding 2). Everything else matches the GPU arms so a CPU
+    generation differs from a Vulkan one only by the backend.
+    """
+    cpu = args.backend == "cpu"
+    cmd = [str(binary), "-m", str(MODEL), "-ngl", "0" if cpu else "99", "-c", str(args.ctx), "-ub", str(args.ubatch),
+           "-b", "2048", "-np", "1", "-fa", "on", "--host", "127.0.0.1", "--port", str(args.port),
+           "--alias", "q38gsq-review", "--temp", "1", "--top-k", "20", "--top-p", ".95", "--min-p", "0",
+           "--repeat-penalty", "1", "--no-webui", "--cache-ram", "2048"]
+    if cpu:
+        cmd += CPU_ONLY_FLAGS
+    if args.threads:
+        cmd += ["-t", str(args.threads), "-tb", str(args.threads)]
+    if args.profile != "ar":
+        cmd += ["--spec-type", "draft-mtp", "--spec-draft-n-max", "2"]
+    return cmd
+
+
 @contextlib.contextmanager
 def server(args):
-    binary = getattr(args, "binary", None) or ROOT / "llama.cpp" / ("build-hip" if args.backend == "hip" else "build") / "bin/llama-server"
+    binary = server_binary(args)
     env = os.environ.copy()
     for key in list(env):
         if key.startswith("SAKER_"):
@@ -50,15 +80,10 @@ def server(args):
         env["SAKER_PF_TRACE"] = "1"
     if getattr(args, "wide_warp", False):
         env["SAKER_LMMQ_WT"] = "256,128,256,32,64,128,2,16,16,16,64"
-    env["LD_LIBRARY_PATH"] = ":".join(p for p in [str(Path(binary).resolve().parent), env.get("LD_LIBRARY_PATH", "")] if p)
-    cmd = [str(binary), "-m", str(MODEL), "-ngl", "99", "-c", str(args.ctx), "-ub", str(args.ubatch),
-           "-b", "2048", "-np", "1", "-fa", "on", "--host", "127.0.0.1", "--port", str(args.port),
-           "--alias", "q38gsq-review", "--temp", "1", "--top-k", "20", "--top-p", ".95", "--min-p", "0",
-           "--repeat-penalty", "1", "--no-webui", "--cache-ram", "2048"]
-    if args.threads:
-        cmd += ["-t", str(args.threads), "-tb", str(args.threads)]
-    if args.profile != "ar":
-        cmd += ["--spec-type", "draft-mtp", "--spec-draft-n-max", "2"]
+    env["LD_LIBRARY_PATH"] = ":".join(p for p in [str(binary.resolve().parent), env.get("LD_LIBRARY_PATH", "")] if p)
+    cmd = server_command(args, binary)
+    # The CPU arm can take several minutes to load and run its startup probe decode.
+    startup_limit = 900 if args.backend == "cpu" else 180
     args.out.mkdir(parents=True, exist_ok=True)
     base = f"http://127.0.0.1:{args.port}"
     start = time.perf_counter()
@@ -72,8 +97,8 @@ def server(args):
                 call(base, "/health", timeout=2)
                 break
             except Exception:
-                if time.perf_counter() - start > 180:
-                    raise RuntimeError("server startup exceeded 180 seconds")
+                if time.perf_counter() - start > startup_limit:
+                    raise RuntimeError(f"server startup exceeded {startup_limit} seconds")
                 time.sleep(.5)
         metadata = {"cmd": cmd, "backend": args.backend, "profile": args.profile, "load_seconds": time.perf_counter()-start,
                     "shortlist": env.get("SAKER_SHORTLIST"), "engine_env":{k:v for k,v in env.items() if k.startswith("SAKER_")}, "props": call(base, "/props"), "runs": []}
@@ -90,7 +115,8 @@ def server(args):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--backend", choices=["vulkan", "hip"], default="vulkan")
+    p.add_argument("--backend", choices=["vulkan", "hip", "cpu"], default="vulkan",
+                   help="cpu = reference implementation (--device none --no-op-offload --no-kv-offload); slow")
     p.add_argument("--profile", choices=["ar", "mtp", "shortlist"], default="ar")
     p.add_argument("--ctx", type=int, default=16384)
     p.add_argument("--ubatch", type=int, default=256)

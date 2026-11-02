@@ -1,0 +1,48 @@
+{
+  "date": "2026-11-02",
+  "environment": "offline review container: no GPU, no model file, no node B access; upstream llama.cpp fetched from GitHub",
+  "python_unit_tests": {
+    "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests",
+    "passed": 41,
+    "failed": 0,
+    "note": "37 pre-existing plus 4 new tests for the harness CPU arm"
+  },
+  "patch_application": [
+    {
+      "tree": "9d57ce456 + patches/saker-combined.patch",
+      "applies": true
+    },
+    {
+      "tree": "9d57ce456 + main:patches/saker-combined.patch (pre-repair) + patches/saker-quality-fix.patch",
+      "applies": true
+    },
+    {
+      "check": "the two trees above are identical over the combined-patch pathspec",
+      "result": true
+    },
+    {
+      "tree": "either tree above + patches/saker-gdn-l2norm-eps.patch",
+      "applies": true,
+      "reverse_applies_cleanly": true
+    },
+    {
+      "check": "patches/saker-gdn-l2norm-eps.patch applied to a pristine 9d57ce456 tree",
+      "applies": true,
+      "note": "order independent: applies before or after the combined patch or the quality fix"
+    }
+  ],
+  "compile_check": {
+    "tree": "9d57ce456 + saker-combined.patch + saker-gdn-l2norm-eps.patch",
+    "configure": "cmake -G Ninja -DGGML_VULKAN=OFF -DGGML_NATIVE=OFF -DLLAMA_CURL=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_TOOLS=OFF -DLLAMA_BUILD_SERVER=OFF",
+    "target": "src/CMakeFiles/llama.dir/models/qwen35.cpp.o",
+    "result": "compiled without errors",
+    "not_done": "no Vulkan build (no glslc or GPU here), no model load, no fidelity or generation run"
+  },
+  "upstream_survey": {
+    "pin": "9d57ce456c94d241dde672b2db9cf18879766568",
+    "master_at_review": "785322d17f2d51e5185cf996a1f4e46d87640841",
+    "commits_ahead": 1595,
+    "report": "reports/item23-20261102/upstream-delta-20261102.md"
+  },
+  "engine_changes_installed_on_node_B": "none; the GDN patch is published but not built or deployed"
+}

@@ -67,7 +67,8 @@ def generate(base, body, out):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--backend", choices=["vulkan","hip"], default="vulkan")
+    p.add_argument("--backend", choices=["vulkan","hip","cpu"], default="vulkan",
+                   help="cpu runs the reference implementation with no GPU work; expect well under 5 tokens/s")
     p.add_argument("--profile", choices=["ar","mtp","shortlist"], default="ar")
     p.add_argument("--legacy-sampling", action="store_true")
     p.add_argument("--wide-warp", action="store_true")
@@ -75,8 +76,14 @@ def main():
     p.add_argument("--out", type=Path, required=True)
     p.add_argument("--tokens", type=int, default=12288)
     p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--ctx", type=int, default=32768)
+    p.add_argument("--threads", type=int, default=None, help="default 4 for GPU arms, 16 for the cpu arm")
+    p.add_argument("--port", type=int, default=18153)
     args = p.parse_args()
-    launch = SimpleNamespace(backend=args.backend,profile=args.profile,ctx=32768,ubatch=256,threads=4,port=18153,no_retune=False,wide_warp=args.wide_warp,out=args.out)
+    if args.backend == "cpu" and args.profile != "ar":
+        p.error("the cpu arm is the plain reference implementation; use --profile ar")
+    threads = args.threads if args.threads is not None else (16 if args.backend == "cpu" else 4)
+    launch = SimpleNamespace(backend=args.backend,profile=args.profile,ctx=args.ctx,ubatch=256,threads=threads,port=args.port,no_retune=False,wide_warp=args.wide_warp,out=args.out)
     tools = [{"type":"function", "function":{"name":"write_file", "description":"Write the complete standalone HTML webpage.",
              "parameters":{"type":"object", "properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"]}}}]
     body = {"model":"q38gsq-review", "messages":[
