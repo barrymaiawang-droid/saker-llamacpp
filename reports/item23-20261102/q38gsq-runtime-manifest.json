@@ -1,0 +1,80 @@
+{
+  "base_commit": "9d57ce456",
+  "backend": "Vulkan",
+  "architecture": "gfx1151",
+  "files": {
+    "llama-server": {
+      "sha256": "cdd623f7d2a7aa10ef914cdc684bdc1f207713ef7a63f806068c19713573d98b",
+      "bytes": 12528
+    },
+    "libggml-base.so.0.20.0": {
+      "sha256": "04bb18b0248348e6638989023ed4cc3b1890ac8abeeb42b9fe7ea66e23d33cee",
+      "bytes": 928256
+    },
+    "libggml-cpu.so.0.20.0": {
+      "sha256": "7136e5755dead0ed42eb5db0d1e97ddcde6270478e0d143c51e912b990cb35f9",
+      "bytes": 1362992
+    },
+    "libllama-bench-impl.so": {
+      "sha256": "5840ac10bfcda21e4ca45d32bd510ff213660de0f3bc2635b056fecfe25c45d2",
+      "bytes": 464200
+    },
+    "libggml-vulkan.so.0.20.0": {
+      "sha256": "12a1186b800c2f54a56d3efba722f945a61ccf899424441c4e4530b7bba31028",
+      "bytes": 53165168
+    },
+    "libggml.so.0.20.0": {
+      "sha256": "f45a5281c29415d97cecd823c48e69f8c27887c4367f85e9eef0b3c094d23c1c",
+      "bytes": 51520
+    },
+    "libllama.so.0.1.0": {
+      "sha256": "8fc7ce80aa43d4b3f6af3169cf9a66479a624ee484ea35ad5fa8b573210fabc1",
+      "bytes": 4289568
+    },
+    "libmtmd.so.0.1.0": {
+      "sha256": "9e22df03febf4bfbbea5ee12a4ec65b27ed7d9a856c0f72acdc9a6756ffecaae",
+      "bytes": 1983672
+    },
+    "libllama-common.so.0.1.0": {
+      "sha256": "c60c82521b75ca0159890799bec63af9d4da479d86175a051e99001951f07c48",
+      "bytes": 6340776
+    },
+    "libllama-server-impl.so": {
+      "sha256": "8bbf1a5873aa106145b80fa6c4212dda517cef8fc42d582b93a7280928470917",
+      "bytes": 7652312
+    }
+  },
+  "combined_patch_sha256": "764d93e7643a143d17e167db907f3a87f933814bb3b724bc945bc9a7f1c2abdb",
+  "quality_patch_sha256": "97377b7745d6311a04537b4030a1d365c63b45cfbe90149e1b8580169d89578b",
+  "launcher_sha256": "e0bb4d9ed8b3d1521daf0d0069285797f23a39a7893a058ea2c136d63a3889fb",
+  "model": {
+    "sha256": "58fd826723939933dc86f45b7fe04545cbc2de1c70f6fe2cdd3858c87a98c12f",
+    "bytes": 12120016960,
+    "expected_sha256": "58fd826723939933dc86f45b7fe04545cbc2de1c70f6fe2cdd3858c87a98c12f",
+    "match": true,
+    "path": "<NODE_B_HOME>/models/Qwen3.8-27B-GSQ-RCO/Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf"
+  },
+  "template": {
+    "embedded_template_sha256": "c3cf9e34abf4f9e36c2d72165aa9c132d3e2a725b6c2586aaa3a8af9d7a81041",
+    "official_template_sha256": "c3cf9e34abf4f9e36c2d72165aa9c132d3e2a725b6c2586aaa3a8af9d7a81041",
+    "identical": true,
+    "official_template_chars": 8952,
+    "embedded_template_chars": 8952,
+    "source": "https://huggingface.co/Qwen/Qwen3.8-27B/raw/main/tokenizer_config.json"
+  },
+  "validation": {
+    "matrix": {
+      "pass": 80,
+      "total": 80
+    },
+    "gdn": {
+      "pass": 50,
+      "total": 50
+    },
+    "python": 37,
+    "native_tools": 71,
+    "streaming_prefix_parses": 16098
+  },
+  "source_base": "9d57ce456c94d241dde672b2db9cf18879766568",
+  "saker_base": "f50ec4b2007fba55eb499a85be0f5d4e0ae3443a"
+}

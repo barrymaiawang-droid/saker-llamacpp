@@ -116,6 +116,9 @@ def run_arm(tag, binary, envfrag, prompt_keys, reps, ctx, npredict):
                     continue
                 msg = (r.get("choices") or [{}])[0].get("message") or {}
                 text = (msg.get("content") or "") + "\n" + (msg.get("reasoning_content") or "")
+                if not text.strip():
+                    print("  %-18s %-5s rep%d ERROR missing generated text" % (tag, key, rep))
+                    continue
                 digest = hashlib.md5(text.encode()).hexdigest()
                 results[(key, rep)] = digest
                 with open(os.path.join(OUT, "out-%s-%s-rep%d.txt" % (tag, key, rep)), "w") as fh:
@@ -146,6 +149,12 @@ def main():
 
     arms = [a.strip() for a in args.arms.split(",") if a.strip()]
     prompts = [p.strip() for p in args.prompts.split(",") if p.strip()]
+    if args.reps < 2 or not prompts or len(arms) < 2 or args.reference not in arms:
+        print("FAIL: require at least two reps, two arms, prompts, and a reference in --arms")
+        return 2
+    if any(a not in ARMS for a in arms) or any(p not in PROMPTS for p in prompts):
+        print("FAIL: unknown arm or prompt")
+        return 2
     if not free_port():
         print("FAIL: could not free port %d" % PORT)
         return 2
@@ -163,9 +172,17 @@ def main():
     print("\n=== verdict, against reference arm %r ===" % ref)
     print("  a mismatch is only meaningful if the reference is stable across its own reps")
     problems = 0
+    inconclusive = False
+    for tag in arms:
+        for key in prompts:
+            for r in range(1, args.reps + 1):
+                if not data.get(tag, {}).get((key, r)):
+                    inconclusive = True
+                    print("    MISSING %-18s %s rep%d" % (tag, key, r))
     for key in prompts:
         ref_hashes = [data.get(ref, {}).get((key, r)) for r in range(1, args.reps + 1)]
-        stable = len(set(h for h in ref_hashes if h)) <= 1
+        stable = all(ref_hashes) and len(set(ref_hashes)) == 1
+        inconclusive = inconclusive or not stable
         print("  %-5s reference stable across reps: %s %s" % (
             key, "yes" if stable else "NO - comparison is unreliable for this prompt",
             "" if stable else "(%s)" % ", ".join((h or "-")[:8] for h in ref_hashes)))
@@ -181,6 +198,10 @@ def main():
                     print("    %-18s %s rep%d MISMATCH  ref=%s got=%s" % (
                         tag, key, r, a[:8], b[:8]))
     print("\n  total mismatches: %d" % problems)
+    if inconclusive:
+        print("  INCONCLUSIVE - missing runs or unstable reference; no output-neutrality claim")
+        print("  outputs: %s" % OUT)
+        return 2
     print("  %s" % ("ALL ARMS BIT-IDENTICAL to the reference" if problems == 0
                     else "NOT output-neutral - do not describe this build as byte-identical"))
     print("  outputs: %s" % OUT)

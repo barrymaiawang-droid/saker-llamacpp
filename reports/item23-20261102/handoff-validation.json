@@ -1,0 +1,23 @@
+{
+  "python_unit_tests": {
+    "command": "PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -v",
+    "passed": 37,
+    "failed": 0,
+    "seconds": 12.605
+  },
+  "patch_application": [
+    {
+      "path": "patches/saker-combined.patch",
+      "applies": true,
+      "base": "9d57ce456c94d241dde672b2db9cf18879766568",
+      "mode": "combined"
+    },
+    {
+      "path": "patches/saker-quality-fix.patch",
+      "applies": true,
+      "base": "9d57ce456c94d241dde672b2db9cf18879766568",
+      "mode": "incremental"
+    }
+  ],
+  "note": "Engine numerical results were measured on the built Vulkan runtime before this documentation commit. No new engine code was added during handoff preparation."
+}

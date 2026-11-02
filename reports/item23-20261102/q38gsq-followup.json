@@ -1,0 +1,691 @@
+{
+  "date": "2026-11-02",
+  "host": "node B",
+  "earlier_engine_numerical_fix_active": true,
+  "new_production_code_changes": [],
+  "remaining_visual_generation_issue": "unresolved; fresh output still fails geometry and animation checks",
+  "state_checks": {
+    "purpose": "Check whether the remaining unedited pelican generation error is caused by recurrent state restoration or native MTP rollback.",
+    "model": "Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf",
+    "model_sha256_previously_verified": "58fd826723939933dc86f45b7fe04545cbc2de1c70f6fe2cdd3858c87a98c12f",
+    "findings": [
+      "Upstream test fails early under its absolute 1e-5 logit threshold on Vulkan. This is not by itself a material inference error.",
+      "The upstream test overwrites full-replay expected logits with a later partial replay. That replay requests rollback across three separate single-token decodes, outside the snapshots produced by the last decode. The overwritten reference creates a false dirty-restore comparison.",
+      "Keeping the original full-replay reference gives exact CPU logits for both fresh and dirty restores. Vulkan dirty-restore maximum KL is below 0.00005 on these three positions.",
+      "On original pelican code after a 4096-token prefix, batch3, native-MTP target state and mixed rejected-draft rollback preserve the top token at all 192 tested positions versus ordinary single-token decoding.",
+      "These results do not establish a second engine defect or guarantee correct generated geometry. No speculative production state patch has been made."
+    ],
+    "results": {
+      "measure-baseline": {
+        "run": {
+          "tag": "measure-baseline",
+          "exit": 0,
+          "seconds": 3.586222635000013
+        },
+        "measurements": [
+          {
+            "mode": "full",
+            "position": 6,
+            "source_top": 15217,
+            "dest_top": 15217,
+            "max_abs": 0.0728745461,
+            "rms": 0.0129256464,
+            "kl": 1.51027899e-06
+          },
+          {
+            "mode": "full",
+            "position": 7,
+            "source_top": 5388,
+            "dest_top": 5388,
+            "max_abs": 0.0673265457,
+            "rms": 0.0129675597,
+            "kl": 3.24368784e-06
+          },
+          {
+            "mode": "full",
+            "position": 8,
+            "source_top": 13,
+            "dest_top": 13,
+            "max_abs": 0.0871701241,
+            "rms": 0.0158703427,
+            "kl": 5.16071129e-05
+          },
+          {
+            "mode": "partial",
+            "position": 6,
+            "source_top": 3841,
+            "dest_top": 3841,
+            "max_abs": 0.067510128,
+            "rms": 0.0123225788,
+            "kl": 6.86855719e-05
+          },
+          {
+            "mode": "partial",
+            "position": 7,
+            "source_top": 5388,
+            "dest_top": 5388,
+            "max_abs": 0.0677862167,
+            "rms": 0.0136917119,
+            "kl": 2.7207318e-05
+          },
+          {
+            "mode": "partial",
+            "position": 8,
+            "source_top": 13,
+            "dest_top": 13,
+            "max_abs": 0.0652942657,
+            "rms": 0.0126669761,
+            "kl": 5.72443844e-05
+          },
+          {
+            "mode": "dirty",
+            "position": 6,
+            "source_top": 3841,
+            "dest_top": 15217,
+            "max_abs": 7.75104332,
+            "rms": 1.33634461,
+            "kl": 4.50051719
+          },
+          {
+            "mode": "dirty",
+            "position": 7,
+            "source_top": 5388,
+            "dest_top": 5388,
+            "max_abs": 4.28081083,
+            "rms": 0.791125306,
+            "kl": 0.411024378
+          },
+          {
+            "mode": "dirty",
+            "position": 8,
+            "source_top": 13,
+            "dest_top": 13,
+            "max_abs": 5.32556379,
+            "rms": 0.936036391,
+            "kl": 0.358682767
+          }
+        ]
+      },
+      "measure-clear": {
+        "run": {
+          "tag": "measure-clear",
+          "exit": 0,
+          "seconds": 3.5824925460001396
+        },
+        "measurements": [
+          {
+            "mode": "full",
+            "position": 6,
+            "source_top": 15217,
+            "dest_top": 15217,
+            "max_abs": 0.0728745461,
+            "rms": 0.0129256464,
+            "kl": 1.51027899e-06
+          },
+          {
+            "mode": "full",
+            "position": 7,
+            "source_top": 5388,
+            "dest_top": 5388,
+            "max_abs": 0.0673265457,
+            "rms": 0.0129675597,
+            "kl": 3.24368784e-06
+          },
+          {
+            "mode": "full",
+            "position": 8,
+            "source_top": 13,
+            "dest_top": 13,
+            "max_abs": 0.0871701241,
+            "rms": 0.0158703427,
+            "kl": 5.16071129e-05
+          },
+          {
+            "mode": "partial",
+            "position": 6,
+            "source_top": 3841,
+            "dest_top": 3841,
+            "max_abs": 0.067510128,
+            "rms": 0.0123225788,
+            "kl": 6.86855719e-05
+          },
+          {
+            "mode": "partial",
+            "position": 7,
+            "source_top": 5388,
+            "dest_top": 5388,
+            "max_abs": 0.0677862167,
+            "rms": 0.0136917119,
+            "kl": 2.7207318e-05
+          },
+          {
+            "mode": "partial",
+            "position": 8,
+            "source_top": 13,
+            "dest_top": 13,
+            "max_abs": 0.0652942657,
+            "rms": 0.0126669761,
+            "kl": 5.72443844e-05
+          },
+          {
+            "mode": "dirty",
+            "position": 6,
+            "source_top": 3841,
+            "dest_top": 15217,
+            "max_abs": 7.76175398,
+            "rms": 1.33603793,
+            "kl": 4.47910621
+          },
+          {
+            "mode": "dirty",
+            "position": 7,
+            "source_top": 5388,
+            "dest_top": 5388,
+            "max_abs": 4.26972389,
+            "rms": 0.789429504,
+            "kl": 0.410556724
+          },
+          {
+            "mode": "dirty",
+            "position": 8,
+            "source_top": 13,
+            "dest_top": 13,
+            "max_abs": 5.318757,
+            "rms": 0.934453969,
+            "kl": 0.360370422
+          }
+        ]
+      },
+      "reference-fixed-vk": {
+        "run": {
+          "tag": "reference-fixed-vk",
+          "exit": 0,
+          "seconds": 3.6121730470003968
+        },
+        "measurements": [
+          {
+            "mode": "full",
+            "position": 6,
+            "source_top": 15217,
+            "dest_top": 15217,
+            "max_abs": 0.0728745461,
+            "rms": 0.0129256464,
+            "kl": 1.51027899e-06
+          },
+          {
+            "mode": "full",
+            "position": 7,
+            "source_top": 5388,
+            "dest_top": 5388,
+            "max_abs": 0.0673265457,
+            "rms": 0.0129675597,
+            "kl": 3.24368784e-06
+          },
+          {
+            "mode": "full",
+            "position": 8,
+            "source_top": 13,
+            "dest_top": 13,
+            "max_abs": 0.0871701241,
+            "rms": 0.0158703427,
+            "kl": 5.16071129e-05
+          },
+          {
+            "mode": "partial_vs_original",
+            "position": 6,
+            "source_top": 15217,
+            "dest_top": 3841,
+            "max_abs": 7.74804014,
+            "rms": 1.33615111,
+            "kl": 1.97863152
+          },
+          {
+            "mode": "partial",
+            "position": 6,
+            "source_top": 3841,
+            "dest_top": 3841,
+            "max_abs": 0.067510128,
+            "rms": 0.0123225788,
+            "kl": 6.86855719e-05
+          },
+          {
+            "mode": "partial_vs_original",
+            "position": 7,
+            "source_top": 5388,
+            "dest_top": 5388,
+            "max_abs": 4.27605486,
+            "rms": 0.789775992,
+            "kl": 0.157035197
+          },
+          {
+            "mode": "partial",
+            "position": 7,
+            "source_top": 5388,
+            "dest_top": 5388,
+            "max_abs": 0.0677862167,
+            "rms": 0.0136917119,
+            "kl": 2.7207318e-05
+          },
+          {
+            "mode": "partial_vs_original",
+            "position": 8,
+            "source_top": 13,
+            "dest_top": 13,
+            "max_abs": 5.30456352,
+            "rms": 0.936215292,
+            "kl": 0.210375585
+          },
+          {
+            "mode": "partial",
+            "position": 8,
+            "source_top": 13,
+            "dest_top": 13,
+            "max_abs": 0.0652942657,
+            "rms": 0.0126669761,
+            "kl": 5.72443844e-05
+          },
+          {
+            "mode": "dirty",
+            "position": 6,
+            "source_top": 15217,
+            "dest_top": 15217,
+            "max_abs": 0.0717697144,
+            "rms": 0.0129876573,
+            "kl": 5.73681249e-06
+          },
+          {
+            "mode": "dirty",
+            "position": 7,
+            "source_top": 5388,
+            "dest_top": 5388,
+            "max_abs": 0.0711402893,
+            "rms": 0.0134150602,
+            "kl": 2.28914882e-06
+          },
+          {
+            "mode": "dirty",
+            "position": 8,
+            "source_top": 13,
+            "dest_top": 13,
+            "max_abs": 0.0780034065,
+            "rms": 0.0152009101,
+            "kl": 4.94349002e-05
+          }
+        ]
+      },
+      "reference-fixed-cpu": {
+        "run": {
+          "tag": "reference-fixed-cpu",
+          "exit": 0,
+          "seconds": 7.810600501999943
+        },
+        "measurements": [
+          {
+            "mode": "full",
+            "position": 6,
+            "source_top": 15217,
+            "dest_top": 15217,
+            "max_abs": 0,
+            "rms": 0,
+            "kl": 0
+          },
+          {
+            "mode": "full",
+            "position": 7,
+            "source_top": 5388,
+            "dest_top": 5388,
+            "max_abs": 0,
+            "rms": 0,
+            "kl": 0
+          },
+          {
+            "mode": "full",
+            "position": 8,
+            "source_top": 13,
+            "dest_top": 13,
+            "max_abs": 0,
+            "rms": 0,
+            "kl": 0
+          },
+          {
+            "mode": "partial_vs_original",
+            "position": 6,
+            "source_top": 15217,
+            "dest_top": 3841,
+            "max_abs": 7.72153616,
+            "rms": 1.34688848,
+            "kl": 1.97085982
+          },
+          {
+            "mode": "partial",
+            "position": 6,
+            "source_top": 3841,
+            "dest_top": 3841,
+            "max_abs": 0,
+            "rms": 0,
+            "kl": 0
+          },
+          {
+            "mode": "partial_vs_original",
+            "position": 7,
+            "source_top": 5388,
+            "dest_top": 5388,
+            "max_abs": 4.23205996,
+            "rms": 0.798082195,
+            "kl": 0.159267447
+          },
+          {
+            "mode": "partial",
+            "position": 7,
+            "source_top": 5388,
+            "dest_top": 5388,
+            "max_abs": 0,
+            "rms": 0,
+            "kl": 0
+          },
+          {
+            "mode": "partial_vs_original",
+            "position": 8,
+            "source_top": 13,
+            "dest_top": 13,
+            "max_abs": 5.16801453,
+            "rms": 0.915697418,
+            "kl": 0.213681821
+          },
+          {
+            "mode": "partial",
+            "position": 8,
+            "source_top": 13,
+            "dest_top": 13,
+            "max_abs": 0,
+            "rms": 0,
+            "kl": 0
+          },
+          {
+            "mode": "dirty",
+            "position": 6,
+            "source_top": 15217,
+            "dest_top": 15217,
+            "max_abs": 0,
+            "rms": 0,
+            "kl": 0
+          },
+          {
+            "mode": "dirty",
+            "position": 7,
+            "source_top": 5388,
+            "dest_top": 5388,
+            "max_abs": 0,
+            "rms": 0,
+            "kl": 0
+          },
+          {
+            "mode": "dirty",
+            "position": 8,
+            "source_top": 13,
+            "dest_top": 13,
+            "max_abs": 0,
+            "rms": 0,
+            "kl": 0
+          }
+        ]
+      },
+      "spec-state": {
+        "run": {
+          "exit": 0,
+          "seconds": 90.66602727300051
+        },
+        "measurements": [
+          {
+            "reference": "single-token AR"
+          },
+          {
+            "mode": "batch3_vs_ar",
+            "rows": 192,
+            "top_changes": 0,
+            "mean_kl": 7.42617589e-06,
+            "max_kl": 0.000198709234
+          },
+          {
+            "mode": "mtp_accept_all_vs_ar",
+            "rows": 192,
+            "top_changes": 0,
+            "mean_kl": 7.42617589e-06,
+            "max_kl": 0.000198709234
+          },
+          {
+            "mode": "mtp_accept_all_vs_batch3",
+            "rows": 192,
+            "top_changes": 0,
+            "mean_kl": 0,
+            "max_kl": 0
+          },
+          {
+            "mode": "mtp_reject_mix_vs_ar",
+            "rows": 192,
+            "top_changes": 0,
+            "mean_kl": 6.8392392e-06,
+            "max_kl": 0.000120921395
+          },
+          {
+            "mode": "mtp_reject_mix_vs_accept_all",
+            "rows": 192,
+            "top_changes": 0,
+            "mean_kl": 8.62088919e-06,
+            "max_kl": 0.00037200605
+          }
+        ]
+      }
+    }
+  },
+  "prefill_tuning": {
+    "prompt_tokens": 2048,
+    "generation_tokens": 0,
+    "repetitions": 3,
+    "hardware": "node B Radeon 8060S",
+    "sequential_runs": true,
+    "selected_configuration_unchanged": {
+      "ubatch": 256,
+      "retune": true
+    },
+    "results": [
+      {
+        "retune": true,
+        "ubatch": 256,
+        "mean_tokens_per_second": 293.122067,
+        "stdev": 2.238245,
+        "samples": [
+          290.838,
+          293.217,
+          295.312
+        ]
+      },
+      {
+        "retune": true,
+        "ubatch": 512,
+        "mean_tokens_per_second": 268.299766,
+        "stdev": 0.928263,
+        "samples": [
+          269.171,
+          268.405,
+          267.323
+        ]
+      },
+      {
+        "retune": true,
+        "ubatch": 1024,
+        "mean_tokens_per_second": 237.481397,
+        "stdev": 5.880493,
+        "samples": [
+          244.271,
+          234.12,
+          234.053
+        ]
+      },
+      {
+        "retune": true,
+        "ubatch": 128,
+        "mean_tokens_per_second": 186.895676,
+        "stdev": 8.245584,
+        "samples": [
+          193.948,
+          188.909,
+          177.83
+        ]
+      },
+      {
+        "retune": false,
+        "ubatch": 256,
+        "mean_tokens_per_second": 263.164217,
+        "stdev": 5.505753,
+        "samples": [
+          269.007,
+          258.072,
+          262.413
+        ]
+      },
+      {
+        "retune": false,
+        "ubatch": 128,
+        "mean_tokens_per_second": 230.178774,
+        "stdev": 2.2752,
+        "samples": [
+          228.69,
+          229.049,
+          232.798
+        ]
+      }
+    ]
+  },
+  "installed_context_comparison": {
+    "reference_context": 16384,
+    "installed_context": 262144,
+    "results": [
+      {
+        "case": "geometry-prefix-0",
+        "prompt_tokens": 190,
+        "same_tokens": true,
+        "top8_same_ids": true,
+        "max_top8_logprob_delta": 0.0,
+        "seconds": 1.149501345000317
+      },
+      {
+        "case": "pelican-prefix-0",
+        "prompt_tokens": 111,
+        "same_tokens": true,
+        "top8_same_ids": true,
+        "max_top8_logprob_delta": 0.016546249389648438,
+        "seconds": 0.9042814550002731
+      },
+      {
+        "case": "prefill-0",
+        "prompt_tokens": 5367,
+        "same_tokens": true,
+        "top8_same_ids": true,
+        "max_top8_logprob_delta": 0.14932823181152344,
+        "seconds": 20.629109993000384
+      }
+    ]
+  },
+  "fresh_generation": {
+    "exact_original_user_prompt": true,
+    "generic_file_write_system_instructions": true,
+    "art_specific_hints": false,
+    "seed": 42,
+    "reasoning_effort": "medium",
+    "context": 262144,
+    "finish_reason": "tool_calls",
+    "usage": {
+      "completion_tokens": 5539,
+      "prompt_tokens": 367,
+      "total_tokens": 5906,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      }
+    },
+    "timings": {
+      "cache_n": 0,
+      "prompt_n": 367,
+      "prompt_ms": 2037.601,
+      "prompt_per_token_ms": 5.552046321525886,
+      "prompt_per_second": 180.11377104742292,
+      "predicted_n": 5539,
+      "predicted_ms": 188793.162,
+      "predicted_per_token_ms": 34.090495124593716,
+      "predicted_per_second": 29.333689532674917,
+      "draft_n": 4156,
+      "draft_n_accepted": 3462
+    },
+    "elapsed_seconds": 190.83767891499974,
+    "html_sha256": "07be2bdea466290c920a2311dbeca981fd6199e42952ca6055b37db64d21aef4",
+    "byte_identical_to_earlier_32768_context_run": true,
+    "source_rewritten_after_generation": false,
+    "browser_errors": [],
+    "geometry_animation_pass": false,
+    "spoke_end_distance": 0.8700000000000001,
+    "wheel_radius": 0.48,
+    "scenery_to_bicycle_direction_alignment": 0.0,
+    "scenery_motion_60fps_vs_30fps": {
+      "distance_60fps": 3.3600000000000025,
+      "distance_30fps": 1.680000000000001
+    }
+  },
+  "original_file_sha256": "7cb912dead4b640bc4554b9384659d858552de92a6b2d8efb8b1bddb4d5b7733",
+  "installed_runtime": {
+    "health": {
+      "status": "ok"
+    },
+    "libraries": {
+      "libggml-base.so.0.20.0": {
+        "installed": "04bb18b0248348e6638989023ed4cc3b1890ac8abeeb42b9fe7ea66e23d33cee",
+        "audited": "04bb18b0248348e6638989023ed4cc3b1890ac8abeeb42b9fe7ea66e23d33cee",
+        "match": true
+      },
+      "libggml-cpu.so.0.20.0": {
+        "installed": "7136e5755dead0ed42eb5db0d1e97ddcde6270478e0d143c51e912b990cb35f9",
+        "audited": "7136e5755dead0ed42eb5db0d1e97ddcde6270478e0d143c51e912b990cb35f9",
+        "match": true
+      },
+      "libllama-bench-impl.so": {
+        "installed": "5840ac10bfcda21e4ca45d32bd510ff213660de0f3bc2635b056fecfe25c45d2",
+        "audited": "5840ac10bfcda21e4ca45d32bd510ff213660de0f3bc2635b056fecfe25c45d2",
+        "match": true
+      },
+      "libggml-vulkan.so.0.20.0": {
+        "installed": "12a1186b800c2f54a56d3efba722f945a61ccf899424441c4e4530b7bba31028",
+        "audited": "12a1186b800c2f54a56d3efba722f945a61ccf899424441c4e4530b7bba31028",
+        "match": true
+      },
+      "libggml.so.0.20.0": {
+        "installed": "f45a5281c29415d97cecd823c48e69f8c27887c4367f85e9eef0b3c094d23c1c",
+        "audited": "f45a5281c29415d97cecd823c48e69f8c27887c4367f85e9eef0b3c094d23c1c",
+        "match": true
+      },
+      "libllama.so.0.1.0": {
+        "installed": "8fc7ce80aa43d4b3f6af3169cf9a66479a624ee484ea35ad5fa8b573210fabc1",
+        "audited": "8fc7ce80aa43d4b3f6af3169cf9a66479a624ee484ea35ad5fa8b573210fabc1",
+        "match": true
+      },
+      "libmtmd.so.0.1.0": {
+        "installed": "9e22df03febf4bfbbea5ee12a4ec65b27ed7d9a856c0f72acdc9a6756ffecaae",
+        "audited": "9e22df03febf4bfbbea5ee12a4ec65b27ed7d9a856c0f72acdc9a6756ffecaae",
+        "match": true
+      },
+      "libllama-common.so.0.1.0": {
+        "installed": "c60c82521b75ca0159890799bec63af9d4da479d86175a051e99001951f07c48",
+        "audited": "c60c82521b75ca0159890799bec63af9d4da479d86175a051e99001951f07c48",
+        "match": true
+      },
+      "libllama-server-impl.so": {
+        "installed": "8bbf1a5873aa106145b80fa6c4212dda517cef8fc42d582b93a7280928470917",
+        "audited": "8bbf1a5873aa106145b80fa6c4212dda517cef8fc42d582b93a7280928470917",
+        "match": true
+      }
+    }
+  },
+  "health_after_testing": {
+    "status": "ok"
+  },
+  "conclusion": "The earlier Vulkan kernel defect remains repaired. This follow-up does not identify a further engine defect that explains the residual pelican geometry errors. No claim that generation quality is fixed, and no claim that the remaining problem is impossible to fix.",
+  "evidence_directory": "<TASK_ROOT>/work/state-repair-20261102"
+}
