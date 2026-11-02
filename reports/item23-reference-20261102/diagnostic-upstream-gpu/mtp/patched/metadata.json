@@ -1,0 +1,102 @@
+{
+  "command": [
+    "/home/hycris/item23-independent-reference-20261102/llama/build-vulkan-patched/bin/llama-server",
+    "-m",
+    "/home/hycris/models/Qwen3.8/Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf",
+    "-ngl",
+    "99",
+    "-c",
+    "32768",
+    "-ub",
+    "256",
+    "-b",
+    "2048",
+    "-np",
+    "1",
+    "-fa",
+    "on",
+    "--host",
+    "127.0.0.1",
+    "--port",
+    "18163",
+    "--no-webui",
+    "--cache-ram",
+    "2048",
+    "-t",
+    "4",
+    "-tb",
+    "4",
+    "--spec-type",
+    "draft-mtp",
+    "--spec-draft-n-max",
+    "2"
+  ],
+  "pid": 1265969,
+  "proc_start_ticks": "18904540",
+  "binary_sha256": "9a9697687d39e0c29b0cf915f9a4e98387ca6322de04593d5b2fef71667f4a0b",
+  "prefix_sha256": "5c0c50128cbc0531f86c798401c7fd492e880576b71d487b00c50117696a1ee6",
+  "variant": "patched",
+  "repetitions": [
+    {
+      "elapsed": 12.283584710996365,
+      "timings": {
+        "cache_n": 0,
+        "prompt_n": 2048,
+        "prompt_ms": 8312.464,
+        "prompt_per_token_ms": 4.0588203125,
+        "prompt_per_second": 246.37700686583426,
+        "predicted_n": 128,
+        "predicted_ms": 3969.025,
+        "predicted_per_token_ms": 31.25216535433071,
+        "predicted_per_second": 31.997782830795977,
+        "draft_n": 95,
+        "draft_n_accepted": 79
+      },
+      "tokens_sha256": "cf3caf905daa8463f3bd14cab1f273e7ce9973a9f5b6daf91c7e61170a2e8e0d"
+    },
+    {
+      "elapsed": 12.071003303019097,
+      "timings": {
+        "cache_n": 0,
+        "prompt_n": 2048,
+        "prompt_ms": 8160.991,
+        "prompt_per_token_ms": 3.98485888671875,
+        "prompt_per_second": 250.94991527377007,
+        "predicted_n": 128,
+        "predicted_ms": 3908.044,
+        "predicted_per_token_ms": 30.772,
+        "predicted_per_second": 32.49707526322631,
+        "draft_n": 93,
+        "draft_n_accepted": 80
+      },
+      "tokens_sha256": "cf3caf905daa8463f3bd14cab1f273e7ce9973a9f5b6daf91c7e61170a2e8e0d"
+    },
+    {
+      "elapsed": 12.206419149995781,
+      "timings": {
+        "cache_n": 0,
+        "prompt_n": 2048,
+        "prompt_ms": 8189.575,
+        "prompt_per_token_ms": 3.99881591796875,
+        "prompt_per_second": 250.07402704047524,
+        "predicted_n": 128,
+        "predicted_ms": 4014.648,
+        "predicted_per_token_ms": 31.61140157480315,
+        "predicted_per_second": 31.63415572174696,
+        "draft_n": 95,
+        "draft_n_accepted": 79
+      },
+      "tokens_sha256": "cf3caf905daa8463f3bd14cab1f273e7ce9973a9f5b6daf91c7e61170a2e8e0d"
+    }
+  ],
+  "load_seconds": 2.508022662019357,
+  "loaded_library_sha256": {
+    "/home/hycris/item23-independent-reference-20261102/llama/build-vulkan-patched/bin/libggml-base.so.0.20.0": "2953b419f162555962a23d2d97ba256b6124dfb3048693155df5d0347d942fc9",
+    "/home/hycris/item23-independent-reference-20261102/llama/build-vulkan-patched/bin/libggml-cpu.so.0.20.0": "41511f6c075a82bde45ddf6a8ed36685217f324e73a05eecf5f80164b0cee7cd",
+    "/home/hycris/item23-independent-reference-20261102/llama/build-vulkan-patched/bin/libggml-vulkan.so.0.20.0": "0c3d9832175bf495794fd38b3ff6856a8214f632d9987bfdf859e5a93c80b454",
+    "/home/hycris/item23-independent-reference-20261102/llama/build-vulkan-patched/bin/libggml.so.0.20.0": "5e680957bc53e6188a0df92997eb854d37995e4dabd4d7dbd92706a8f1f02fa9",
+    "/home/hycris/item23-independent-reference-20261102/llama/build-vulkan-patched/bin/libllama-common.so.0.1.0": "c85b85bcc49bfbfae7e4ad6a70269e5fa525ad4905f8ba54fc600c36afe8421b",
+    "/home/hycris/item23-independent-reference-20261102/llama/build-vulkan-patched/bin/libllama-server-impl.so": "4b568ca04ac07682317f674422e70197bfc3020667cdf9db442b2b0ea14e86c3",
+    "/home/hycris/item23-independent-reference-20261102/llama/build-vulkan-patched/bin/libllama.so.0.1.0": "2621906be2bdb440f75ef613c8a34f149ddc370e835f11c5aa86794407ffa43f"
+  }
+}

@@ -1,0 +1,26 @@
+[
+  {
+    "fixture": "/home/hycris/item23-independent-reference-20261102/cases/frozen/request_prefill_cached_suffix.json",
+    "out": "/home/hycris/item23-independent-reference-20261102/results-long-20261102/hf-request-chunked.npz",
+    "mode": "chunked",
+    "chunk_size": 256
+  },
+  {
+    "fixture": "/home/hycris/item23-independent-reference-20261102/cases/frozen/request_prefill_cached_suffix.json",
+    "out": "/home/hycris/item23-independent-reference-20261102/results-long-20261102/hf-request-cached.npz",
+    "mode": "cached",
+    "chunk_size": 256
+  },
+  {
+    "fixture": "/home/hycris/item23-independent-reference-20261102/cases/frozen/html_prefill_cached_suffix.json",
+    "out": "/home/hycris/item23-independent-reference-20261102/results-long-20261102/hf-html-chunked.npz",
+    "mode": "chunked",
+    "chunk_size": 256
+  },
+  {
+    "fixture": "/home/hycris/item23-independent-reference-20261102/cases/frozen/html_prefill_cached_suffix.json",
+    "out": "/home/hycris/item23-independent-reference-20261102/results-long-20261102/hf-html-cached.npz",
+    "mode": "cached",
+    "chunk_size": 256
+  }
+]

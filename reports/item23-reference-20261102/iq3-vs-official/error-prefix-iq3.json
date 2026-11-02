@@ -1,0 +1,424 @@
+{
+  "scope": "standalone CPU-generated HTML teacher-forced context; not original sampled conversation; not causal proof",
+  "marker": "new THREE.Wheel",
+  "marker_character_start": 12218,
+  "marker_character_end_exclusive": 12233,
+  "position_semantics": "row p predicts token p+1",
+  "first_invalid_identifier_tokens": "Wheel is split across .W and heel; p=4631 predicts .W and p=4632 predicts heel",
+  "tokens": [
+    {
+      "position": 4629,
+      "token_id": 283,
+      "token_repr": "Ġ=",
+      "source_text": " =",
+      "character_start": 12215,
+      "character_end": 12217
+    },
+    {
+      "position": 4630,
+      "token_id": 491,
+      "token_repr": "Ġnew",
+      "source_text": " new",
+      "character_start": 12217,
+      "character_end": 12221
+    },
+    {
+      "position": 4631,
+      "token_id": 13637,
+      "token_repr": "ĠTHREE",
+      "source_text": " THREE",
+      "character_start": 12221,
+      "character_end": 12227
+    },
+    {
+      "position": 4632,
+      "token_id": 1135,
+      "token_repr": ".W",
+      "source_text": ".W",
+      "character_start": 12227,
+      "character_end": 12229
+    },
+    {
+      "position": 4633,
+      "token_id": 8171,
+      "token_repr": "heel",
+      "source_text": "heel",
+      "character_start": 12229,
+      "character_end": 12233
+    },
+    {
+      "position": 4634,
+      "token_id": 907,
+      "token_repr": "Ġ?",
+      "source_text": " ?",
+      "character_start": 12233,
+      "character_end": 12235
+    },
+    {
+      "position": 4635,
+      "token_id": 819,
+      "token_repr": "Ġnull",
+      "source_text": " null",
+      "character_start": 12235,
+      "character_end": 12240
+    },
+    {
+      "position": 4636,
+      "token_id": 535,
+      "token_repr": "Ġ:",
+      "source_text": " :",
+      "character_start": 12240,
+      "character_end": 12242
+    },
+    {
+      "position": 4637,
+      "token_id": 491,
+      "token_repr": "Ġnew",
+      "source_text": " new",
+      "character_start": 12242,
+      "character_end": 12246
+    },
+    {
+      "position": 4638,
+      "token_id": 13637,
+      "token_repr": "ĠTHREE",
+      "source_text": " THREE",
+      "character_start": 12246,
+      "character_end": 12252
+    },
+    {
+      "position": 4639,
+      "token_id": 76529,
+      "token_repr": ".Clock",
+      "source_text": ".Clock",
+      "character_start": 12252,
+      "character_end": 12258
+    },
+    {
+      "position": 4640,
+      "token_id": 2061,
+      "token_repr": "();",
+      "source_text": "();",
+      "character_start": 12258,
+      "character_end": 12261
+    },
+    {
+      "position": 4641,
+      "token_id": 198,
+      "token_repr": "Ċ",
+      "source_text": "\n",
+      "character_start": 12261,
+      "character_end": 12262
+    }
+  ],
+  "evaluations": [
+    {
+      "label": "iq3-unpatched-prefill",
+      "path": "work/node-a-independent-reference-20261102/iq3-vs-official/html-iq3-unpatched-prefill.npz",
+      "logits_sha256": "5dfd63b08c801e9f12ac4c83df4d23398ba3ad2a6fca29bc7732a4eadc6077dc",
+      "predictions": [
+        {
+          "last_consumed_position": 4631,
+          "target_position": 4632,
+          "target_id": 1135,
+          "target_text": ".W",
+          "probability": 0.03622551514957888,
+          "rank": 5,
+          "top5": [
+            {
+              "id": 76529,
+              "text": ".Clock",
+              "probability": 0.37019156167194
+            },
+            {
+              "id": 248046,
+              "text": "<|im_end|>",
+              "probability": 0.3202250285400595
+            },
+            {
+              "id": 13,
+              "text": ".",
+              "probability": 0.09679484672402648
+            },
+            {
+              "id": 248044,
+              "text": "<|endoftext|>",
+              "probability": 0.058904601932347506
+            },
+            {
+              "id": 1135,
+              "text": ".W",
+              "probability": 0.03622551514957888
+            }
+          ]
+        },
+        {
+          "last_consumed_position": 4632,
+          "target_position": 4633,
+          "target_id": 8171,
+          "target_text": "heel",
+          "probability": 0.005408690677160942,
+          "rank": 8,
+          "top5": [
+            {
+              "id": 248046,
+              "text": "<|im_end|>",
+              "probability": 0.6738527546906476
+            },
+            {
+              "id": 64,
+              "text": "a",
+              "probability": 0.07020949842357635
+            },
+            {
+              "id": 248044,
+              "text": "<|endoftext|>",
+              "probability": 0.06115144052363609
+            },
+            {
+              "id": 932,
+              "text": "ater",
+              "probability": 0.0341759588978629
+            },
+            {
+              "id": 528,
+              "text": "all",
+              "probability": 0.025718637265057277
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "iq3-patched-prefill",
+      "path": "work/node-a-independent-reference-20261102/iq3-vs-official/html-iq3-patched-prefill.npz",
+      "logits_sha256": "3d0ad0e73d22ebab184feb3163912c1564461b0fb64306d65109243d90b19231",
+      "predictions": [
+        {
+          "last_consumed_position": 4631,
+          "target_position": 4632,
+          "target_id": 1135,
+          "target_text": ".W",
+          "probability": 0.04606267363555122,
+          "rank": 4,
+          "top5": [
+            {
+              "id": 76529,
+              "text": ".Clock",
+              "probability": 0.5398958597630371
+            },
+            {
+              "id": 248046,
+              "text": "<|im_end|>",
+              "probability": 0.2609690404612676
+            },
+            {
+              "id": 13,
+              "text": ".",
+              "probability": 0.05073242868013682
+            },
+            {
+              "id": 1135,
+              "text": ".W",
+              "probability": 0.04606267363555122
+            },
+            {
+              "id": 248044,
+              "text": "<|endoftext|>",
+              "probability": 0.03669044361145057
+            }
+          ]
+        },
+        {
+          "last_consumed_position": 4632,
+          "target_position": 4633,
+          "target_id": 8171,
+          "target_text": "heel",
+          "probability": 0.0030199111361140516,
+          "rank": 16,
+          "top5": [
+            {
+              "id": 248046,
+              "text": "<|im_end|>",
+              "probability": 0.6226055463426146
+            },
+            {
+              "id": 248044,
+              "text": "<|endoftext|>",
+              "probability": 0.10173725347692777
+            },
+            {
+              "id": 64,
+              "text": "a",
+              "probability": 0.05379111533066014
+            },
+            {
+              "id": 932,
+              "text": "ater",
+              "probability": 0.04741556500153103
+            },
+            {
+              "id": 528,
+              "text": "all",
+              "probability": 0.04405216839102411
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "iq3-unpatched-cached",
+      "path": "work/node-a-independent-reference-20261102/iq3-vs-official/html-iq3-unpatched-cached.npz",
+      "logits_sha256": "febfb65d19ceef09ab43f396e66083ce09c55263ac1e6609ef81537c06fc9c16",
+      "predictions": [
+        {
+          "last_consumed_position": 4631,
+          "target_position": 4632,
+          "target_id": 1135,
+          "target_text": ".W",
+          "probability": 0.05588563801157343,
+          "rank": 4,
+          "top5": [
+            {
+              "id": 76529,
+              "text": ".Clock",
+              "probability": 0.3628381118953643
+            },
+            {
+              "id": 248046,
+              "text": "<|im_end|>",
+              "probability": 0.322956275055346
+            },
+            {
+              "id": 13,
+              "text": ".",
+              "probability": 0.09189737103435808
+            },
+            {
+              "id": 1135,
+              "text": ".W",
+              "probability": 0.05588563801157343
+            },
+            {
+              "id": 248044,
+              "text": "<|endoftext|>",
+              "probability": 0.05368378526352046
+            }
+          ]
+        },
+        {
+          "last_consumed_position": 4632,
+          "target_position": 4633,
+          "target_id": 8171,
+          "target_text": "heel",
+          "probability": 0.01346096375651736,
+          "rank": 4,
+          "top5": [
+            {
+              "id": 248046,
+              "text": "<|im_end|>",
+              "probability": 0.8403652872175186
+            },
+            {
+              "id": 286,
+              "text": "ing",
+              "probability": 0.02265755667256042
+            },
+            {
+              "id": 248044,
+              "text": "<|endoftext|>",
+              "probability": 0.02075899196605176
+            },
+            {
+              "id": 8171,
+              "text": "heel",
+              "probability": 0.01346096375651736
+            },
+            {
+              "id": 510,
+              "text": "</",
+              "probability": 0.012312486751802037
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "iq3-patched-cached",
+      "path": "work/node-a-independent-reference-20261102/iq3-vs-official/html-iq3-patched-cached.npz",
+      "logits_sha256": "57c1a139f9a727949003472358f105b15a6e41a4c29bacd5ac5111e4a8f169a5",
+      "predictions": [
+        {
+          "last_consumed_position": 4631,
+          "target_position": 4632,
+          "target_id": 1135,
+          "target_text": ".W",
+          "probability": 0.03272675108412665,
+          "rank": 4,
+          "top5": [
+            {
+              "id": 76529,
+              "text": ".Clock",
+              "probability": 0.660424618632616
+            },
+            {
+              "id": 248046,
+              "text": "<|im_end|>",
+              "probability": 0.18208867319518598
+            },
+            {
+              "id": 13,
+              "text": ".",
+              "probability": 0.04339027435476566
+            },
+            {
+              "id": 1135,
+              "text": ".W",
+              "probability": 0.03272675108412665
+            },
+            {
+              "id": 248044,
+              "text": "<|endoftext|>",
+              "probability": 0.029558938304377082
+            }
+          ]
+        },
+        {
+          "last_consumed_position": 4632,
+          "target_position": 4633,
+          "target_id": 8171,
+          "target_text": "heel",
+          "probability": 0.005679346709832961,
+          "rank": 10,
+          "top5": [
+            {
+              "id": 248046,
+              "text": "<|im_end|>",
+              "probability": 0.654960578573159
+            },
+            {
+              "id": 248044,
+              "text": "<|endoftext|>",
+              "probability": 0.07228168378190782
+            },
+            {
+              "id": 932,
+              "text": "ater",
+              "probability": 0.0580414263725597
+            },
+            {
+              "id": 64,
+              "text": "a",
+              "probability": 0.04975665996767104
+            },
+            {
+              "id": 528,
+              "text": "all",
+              "probability": 0.03937784093037863
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

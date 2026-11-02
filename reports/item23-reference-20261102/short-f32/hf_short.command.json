@@ -1,0 +1,27 @@
+{
+  "argv": [
+    "systemd-run",
+    "--user",
+    "--scope",
+    "--quiet",
+    "-p",
+    "MemoryMax=116G",
+    "-p",
+    "MemorySwapMax=0",
+    "/usr/bin/time",
+    "-v",
+    "python3",
+    "/home/hycris/item23-independent-reference-20261102/hf_reference.py",
+    "--model",
+    "/home/hycris/item23-independent-reference-20261102/model",
+    "--jobs",
+    "/home/hycris/item23-independent-reference-20261102/results-short-final-20261102/hf-short-jobs.json",
+    "--dtype",
+    "float32",
+    "--threads",
+    "16",
+    "--vocab-sha256",
+    "5ee0f927bcaa4b9fe85c244776ae9487468e427f83e053fc81f2a186f14936a3"
+  ],
+  "cwd": "/home/hycris/item23-independent-reference-20261102"
+}

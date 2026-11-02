@@ -1,0 +1,16 @@
+{
+  "vocab_sha256": "5ee0f927bcaa4b9fe85c244776ae9487468e427f83e053fc81f2a186f14936a3",
+  "model": "/home/hycris/item23-independent-reference-20261102/model-f32.gguf",
+  "arm": "upstream-785322d17",
+  "mode": "prefill",
+  "revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+  "gguf_outtype": "f32",
+  "chunk_size": 256,
+  "seconds": 13.549257203994785,
+  "gpu_layers": 0,
+  "kv": "f32",
+  "flash_attention": "off",
+  "op_and_kv_offload": false,
+  "position_convention": "zero-based consumed token index; predicts next token",
+  "vocab_size": 248320
+}

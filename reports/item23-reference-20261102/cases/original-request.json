@@ -1,0 +1,53 @@
+{
+  "model": "q38gsq-review",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are building the requested webpage. Create the complete page in one write_file call. Use Three.js 0.160.0 with its ES module import map and matching OrbitControls if you need it. No other files are available. Write pelican.html."
+    },
+    {
+      "role": "user",
+      "content": "make a peligan rides a bike 3d webpage, dont search or refre to any other webpage in the folder, make one independantly on your own"
+    }
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "write_file",
+        "description": "Write the complete standalone HTML webpage.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "content": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "content"
+          ]
+        }
+      }
+    }
+  ],
+  "tool_choice": "auto",
+  "max_tokens": 16384,
+  "seed": 42,
+  "stream": true,
+  "stream_options": {
+    "include_usage": true
+  },
+  "temperature": 1.0,
+  "top_p": 0.95,
+  "top_k": 20,
+  "min_p": 0.0,
+  "chat_template_kwargs": {
+    "enable_thinking": true,
+    "reasoning_effort": "medium",
+    "preserve_thinking": true
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "order": 2,
+  "variant": "upstream",
+  "command": [
+    "/home/hycris/item23-independent-reference-20261102/benchmark-upstream/build/bin/llama-bench",
+    "-m",
+    "/home/hycris/models/Qwen3.8/Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf",
+    "-p",
+    "0",
+    "-n",
+    "0",
+    "-pg",
+    "2048,128",
+    "-ngl",
+    "99",
+    "-fa",
+    "on",
+    "-b",
+    "2048",
+    "-ub",
+    "256",
+    "-t",
+    "4",
+    "-r",
+    "1",
+    "-o",
+    "json",
+    "--progress"
+  ],
+  "start_unix": 1793600456.5555968,
+  "elapsed_seconds": 21.09316372871399,
+  "exit_code": 0,
+  "before": {
+    "/sys/class/drm/card1/device/pp_dpm_sclk": "0: 600Mhz \n1: 2430Mhz *\n2: 2900Mhz",
+    "/sys/class/drm/card1/device/gpu_busy_percent": "94",
+    "/sys/class/drm/card1/device/hwmon/hwmon2/temp1_input": "60000"
+  },
+  "after": {
+    "/sys/class/drm/card1/device/pp_dpm_sclk": "0: 600Mhz \n1: 2398Mhz *\n2: 2900Mhz",
+    "/sys/class/drm/card1/device/gpu_busy_percent": "93",
+    "/sys/class/drm/card1/device/hwmon/hwmon2/temp1_input": "64000"
+  },
+  "environment": {
+    "GGML_VK_VISIBLE_DEVICES": "0",
+    "SAKER_overrides": "removed"
+  },
+  "note": "ordinary decoding; fixed synthetic prompt and generation, not MTP serving throughput"
+}

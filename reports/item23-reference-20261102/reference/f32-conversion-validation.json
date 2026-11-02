@@ -1,0 +1,12 @@
+{
+  "ok": true,
+  "gguf_sha256": "6a1205507cd84fc7fdea7d7c55015d333b4dc86dcb3996df8ae435e9335dfe6a",
+  "gguf_size": 109293786368,
+  "gguf_mtime_ns": 1793602755763353053,
+  "coverage": 15,
+  "matrix_log": "/home/hycris/item23-independent-reference-20261102/results-short-resume-20261102/verify_tensors.log",
+  "tail_log": "/home/hycris/item23-independent-reference-20261102/llama/verify-tensors-tail.log",
+  "preflight": "/home/hycris/item23-independent-reference-20261102/llama/verify-tensors-preflight.json",
+  "type_inventory": "/home/hycris/item23-independent-reference-20261102/results-short-resume-20261102/gguf-types.json",
+  "hash_log": "/home/hycris/item23-independent-reference-20261102/results-short-resume-20261102/hash_gguf.log"
+}

@@ -1,0 +1,13 @@
+{
+  "argv": [
+    "/home/hycris/item23-independent-reference-20261102/llama/export-patched",
+    "/home/hycris/item23-independent-reference-20261102/model-f32.gguf",
+    "/home/hycris/item23-independent-reference-20261102/results-short-final-20261102/tokens.txt",
+    "/home/hycris/item23-independent-reference-20261102/results-short-final-20261102/positions.txt",
+    "prefill",
+    "0",
+    "16",
+    "/home/hycris/item23-independent-reference-20261102/results-short-final-20261102/patched-prefill.f32"
+  ],
+  "cwd": "/home/hycris/item23-independent-reference-20261102"
+}

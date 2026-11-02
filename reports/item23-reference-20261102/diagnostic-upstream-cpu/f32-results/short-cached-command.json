@@ -1,0 +1,12 @@
+[
+  "/usr/bin/time",
+  "-v",
+  "/home/hycris/item23-independent-reference-20261102/diagnostic-upstream-cpu/export-upstream-cpu",
+  "/home/hycris/item23-independent-reference-20261102/model-f32.gguf",
+  "/home/hycris/item23-independent-reference-20261102/results-short-final-20261102/tokens.txt",
+  "/home/hycris/item23-independent-reference-20261102/results-short-final-20261102/positions.txt",
+  "decode",
+  "0",
+  "16",
+  "/home/hycris/item23-independent-reference-20261102/diagnostic-upstream-cpu/f32-results/short-cached.f32"
+]

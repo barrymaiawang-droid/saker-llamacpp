@@ -1,0 +1,11 @@
+{
+  "argv": [
+    "python3",
+    "/home/hycris/item23-independent-reference-20261102/cases/compare_logits.py",
+    "/home/hycris/item23-independent-reference-20261102/results-short-final-20261102/hf-prefill.npz",
+    "/home/hycris/item23-independent-reference-20261102/results-short-final-20261102/hf-cached.npz",
+    "--output",
+    "/home/hycris/item23-independent-reference-20261102/results-short-final-20261102/hf-prefill-v-cached.json"
+  ],
+  "cwd": "/home/hycris/item23-independent-reference-20261102"
+}

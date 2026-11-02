@@ -1,0 +1,24 @@
+{
+  "input": "captured IQ3 q/k pre-norm vectors",
+  "input_sha256": "4a2655f21d9dfb1d23ba6b1eb798e9bc49d09aacca96c8adb26b2b96bf0304d6",
+  "rows": 7680,
+  "width": 128,
+  "epsilon": 1e-06,
+  "dtype": "float32",
+  "reference": "PyTorch x*rsqrt(sum(x*x)+1e-6)",
+  "backend": "GGML CPU native l2_norm and rms_norm+scale",
+  "max_abs_tolerance": 2e-07,
+  "old": {
+    "max_abs": 0.001644909381866455,
+    "mean_abs": 4.255113310591696e-07,
+    "max_vector_l2_error": 0.0021471292711794376,
+    "vectors_max_abs_gt_2e-7": 5499
+  },
+  "patched": {
+    "max_abs": 1.7881393432617188e-07,
+    "mean_abs": 2.6522228857572827e-09,
+    "max_vector_l2_error": 2.3147704553139192e-07,
+    "vectors_max_abs_gt_2e-7": 0
+  },
+  "old_exceeds_tolerance": true
+}

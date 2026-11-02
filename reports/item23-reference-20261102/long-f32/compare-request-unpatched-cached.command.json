@@ -1,0 +1,8 @@
+[
+  "python3",
+  "/home/hycris/item23-independent-reference-20261102/cases/compare_logits.py",
+  "/home/hycris/item23-independent-reference-20261102/results-long-20261102/hf-request-cached.npz",
+  "/home/hycris/item23-independent-reference-20261102/results-long-20261102/request-unpatched-cached.npz",
+  "--output",
+  "/home/hycris/item23-independent-reference-20261102/results-long-20261102/request-unpatched-cached-vs-hf.json"
+]

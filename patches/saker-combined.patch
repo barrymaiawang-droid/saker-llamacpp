@@ -542,10 +542,44 @@ index 510ed8498..f2080c4fa 100644
      // statically allocated context for assigning
      struct llama_meta_device_get_split_state_userdata get_split_state_ud;
  
+diff --git a/src/models/models.h b/src/models/models.h
+index cefaf56eb..cf2ac103b 100644
+--- a/src/models/models.h
++++ b/src/models/models.h
+@@ -7,6 +7,18 @@
+ // note: almost all graphs require at least sqrtf, so include cmath globally
+ #include <cmath>
+ 
++// Gated DeltaNet q/k normalization as defined by flash-linear-attention:
++//     l2norm(x) = x * rsqrt(sum(x*x) + eps)
++// with eps inside the root. ggml_l2_norm is x / max(sqrt(sum(x*x)), eps), i.e. no epsilon at
++// these magnitudes. rms_norm already carries eps inside the root, so
++// rms_norm(x, eps/n) * (1/sqrt(n)) is exactly x * rsqrt(sum(x*x) + eps).
++// ref: https://github.com/ggml-org/llama.cpp/pull/28068
++static inline ggml_tensor * build_gdn_l2_norm(ggml_context * ctx, ggml_tensor * x, float eps) {
++    const float n = x->ne[0];
++
++    return ggml_scale(ctx, ggml_rms_norm(ctx, x, eps/n), 1.0f/sqrtf(n));
++}
++
+ //
+ // base classes
+ //
 diff --git a/src/models/qwen35.cpp b/src/models/qwen35.cpp
-index 309dd4324..90dee4bd7 100644
+index 309dd4324..c690d4db2 100644
 --- a/src/models/qwen35.cpp
 +++ b/src/models/qwen35.cpp
+@@ -429,8 +429,8 @@ ggml_tensor * llama_model_qwen35::graph::build_layer_attn_linear(
+ 
+     const float eps_norm = hparams.f_norm_rms_eps;
+ 
+-    q_conv = ggml_l2_norm(ctx0, q_conv, eps_norm);
+-    k_conv = ggml_l2_norm(ctx0, k_conv, eps_norm);
++    q_conv = build_gdn_l2_norm(ctx0, q_conv, eps_norm);
++    k_conv = build_gdn_l2_norm(ctx0, k_conv, eps_norm);
+ 
+     //q_conv = ggml_cont_4d(ctx0, q_conv, head_k_dim, num_k_heads, n_seq_tokens, n_seqs);
+     //k_conv = ggml_cont_4d(ctx0, k_conv, head_k_dim, num_k_heads, n_seq_tokens, n_seqs);
 @@ -637,7 +637,36 @@ llama_model_qwen35::graph_mtp::graph_mtp(const llama_model & model, const llm_gr
      ggml_tensor * head_w = layer.nextn.shared_head_head ? layer.nextn.shared_head_head : model.output;
      ggml_tensor * head_s = layer.nextn.shared_head_head ? layer.nextn.shared_head_head_s : model.output_s;

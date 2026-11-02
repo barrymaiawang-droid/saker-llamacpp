@@ -1,10 +1,13 @@
 # Saker — tuned MTP inference for Swift-1.5 Qwen3.8-27B on a Strix Halo APU
 
-**Item 23 handoff (2026-11-02):** the Vulkan arithmetic defect is repaired, but the
-remaining pelican generation-quality issue is unresolved. Start with the
-[Claude handoff](reports/HANDOFF-ITEM23-ENGINE-20261102.md) for the current status,
-reproduction commands, evidence and failed hypotheses. Edited example pages are
-not evidence of an engine-level quality fix.
+**Item 23 status (2026-11-02):** the Vulkan tile repair and GDN normalization
+fix are included in the default patch paths. Independent Transformers comparisons
+are complete on short, original-request and 4,642-token HTML contexts, including
+cached decoding. The remaining pelican generation-quality issue is unresolved.
+See the [node A reference results](reports/ITEM23-NODE-A-REFERENCE-20261102.md).
+The [Claude handoff](reports/HANDOFF-ITEM23-ENGINE-20261102.md) records the earlier
+investigation and is historical where its patch status differs from this README.
+Edited example pages are not evidence of an engine-level quality fix.
 
 Patches for `llama.cpp` (Vulkan) that make **native MTP speculative decoding** fast on an AMD
 gfx1151 APU, plus a drop-in **loop guard** that stops a model stuck repeating itself and continues
@@ -23,17 +26,29 @@ grid separate, and derives integer-dot grids from each kernel's tile. The
 regressions cover every weight type in the GSQ IQ3_S-mtp checkpoint and both
 sides of the affected column boundary.
 
-For an existing pre-repair Saker tree, apply `patches/saker-quality-fix.patch`.
-Fresh trees should use the updated combined patch. Do not apply both patches.
+The pinned Qwen3.5 graph also used `ggml_l2_norm` for linear-attention Q/K,
+while the reference normalizes as `x * rsqrt(sum(x*x) + eps)`. The included
+GDN repair uses an RMS normalization and scale to express that formula. An
+independent operator check on captured model vectors supports the formula.
+Same-weight F32 model checks matched all 23 measured top-token positions in both
+prefill and cached modes, with lower distribution error after the patch. These
+selected cases do not cover every runtime path or establish a solution to the
+pelican quality issue. The repair has not been deployed to node B.
 
-`patches/saker-gdn-l2norm-eps.patch` is a separate, optional backport of upstream
-llama.cpp #28068: the pinned qwen35 graph normalizes the linear-attention q/k with
-`ggml_l2_norm` (no epsilon inside the root) where the reference model uses
-`x * rsqrt(sum(x*x) + eps)`. It applies on top of either path above, or on the
-pristine pin. Its expected numerical effect is far below the measured Vulkan noise
-floor; it is a faithfulness fix, not a repair for the generation-quality issue, and
-it is not yet built or installed on node B. See
-[the upstream delta report](reports/item23-20261102/upstream-delta-20261102.md).
+Choose **one** application path for the source state:
+
+| Starting tree | Patch to apply |
+| --- | --- |
+| Fresh llama.cpp at `9d57ce456` | `patches/saker-combined.patch` |
+| Existing Saker tree before the Vulkan tile repair | `patches/saker-quality-fix.patch` |
+| Existing Saker tree with the Vulkan tile repair but without the GDN repair | `patches/saker-gdn-l2norm-eps.patch` |
+
+The combined and quality patches now include the GDN repair. The standalone
+GDN delta is retained for already tile-repaired trees; **do not apply it after
+either updated default patch**, or apply the combined and quality patches to
+the same tree. Use `git apply --check` before applying the appropriate patch.
+The [upstream delta report](reports/item23-20261102/upstream-delta-20261102.md)
+records the earlier investigation and its original expectations.
 The performance and quality figures below predate this repair and must be
 re-measured on the corrected build. The shortlist remains an explicit,
 output-changing experiment; the item-23 launcher uses the full vocabulary.
@@ -151,7 +166,7 @@ Requires: a Vulkan-capable build environment, the IQ2_S-mtp GGUF, and llama.cpp 
 git clone https://github.com/ggml-org/llama.cpp llcpp
 cd llcpp && git checkout 9d57ce456
 
-    # 2. apply the combined patch
+# 2. apply the combined patch
 git apply /path/to/patches/saker-combined.patch
 
 # 3. build
@@ -160,7 +175,7 @@ cmake -B build -DGGML_VULKAN=ON -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=ON \
 cmake --build build --target llama-server -j "$(nproc)"
 
 # 4. serve. NOTE -ub 256: the prefill retune is tuned for that micro-batch
-    build/bin/llama-server \
+build/bin/llama-server \
   -m /path/to/Swift-1.5-Qwen3.8-27B-GSQ-RCO-IQ2_S-mtp.gguf \
   -ngl 99 -c 16384 -ub 256 --host 127.0.0.1 --port 18151 \
   --temp 0 --no-webui --spec-type draft-mtp --spec-draft-n-max 2
@@ -228,7 +243,7 @@ Notes for machine-to-machine comparison:
 ```
 patches/saker-combined.patch   engine changes and regression tests over llama.cpp 9d57ce456
 patches/saker-quality-fix.patch correctness repair for an existing pre-repair tree
-patches/saker-gdn-l2norm-eps.patch optional backport of upstream #28068 (GDN q/k l2norm epsilon)
+patches/saker-gdn-l2norm-eps.patch GDN delta for a tree with the earlier Vulkan tile repair
 patches/saker-lmhead.patch     optional LM-head hoist variant, kept for reference
 guard/saker_guard.py           loop guard + thinking switch (stdlib only)
 tests/test_saker_guard.py      25 tests
@@ -238,7 +253,7 @@ docs/LOOP-GUARD.md             guard behaviour in detail
 ```
 
 The patch touches: `common/speculative.cpp`, `ggml/src/ggml-vulkan/ggml-vulkan.cpp`,
-`include/llama.h`, `src/llama-context.cpp`, `src/llama-model.{cpp,h}`, `src/models/qwen35.cpp`,
+`include/llama.h`, `src/llama-context.cpp`, `src/llama-model.{cpp,h}`, `src/models/models.h`, `src/models/qwen35.cpp`,
 `tools/llama-bench/llama-bench.cpp`, `tools/server/server-context.cpp`,
 `tests/test-backend-ops.cpp`.
 
@@ -249,7 +264,7 @@ The published patch is a pathspec-limited diff, not a raw branch diff:
 ```bash
 git diff 9d57ce456 -- \
   common/speculative.cpp ggml/src/ggml-vulkan/ggml-vulkan.cpp include/llama.h \
-  src/llama-context.cpp src/llama-model.cpp src/llama-model.h src/models/qwen35.cpp \
+  src/llama-context.cpp src/llama-model.cpp src/llama-model.h src/models/models.h src/models/qwen35.cpp \
   tools/llama-bench/llama-bench.cpp tools/server/server-context.cpp tests/test-backend-ops.cpp \
   > patches/saker-combined.patch
 ```

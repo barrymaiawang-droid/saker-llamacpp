@@ -1,0 +1,337 @@
+{
+  "repo": "Qwen/Qwen3.8-27B",
+  "revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+  "verification_sha256": "9ec235618a81b617b75b9014d5358de5f0dde156bc931c227523156a56b76711",
+  "iq3_gguf": "/home/hycris/models/Qwen3.8/Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf",
+  "note": "Selected retained tensors only; matches support lineage, not complete source revision identity. F32 transcendental transforms can differ by implementation.",
+  "checks": [
+    {
+      "source": "model.language_model.layers.0.input_layernorm.weight",
+      "target": "blk.0.attn_norm.weight",
+      "transform": "add 1",
+      "shape": [
+        5120
+      ],
+      "exact": true,
+      "max_abs": 0.0,
+      "rmse": 0.0,
+      "source_shard": "model-00001-of-00018.safetensors"
+    },
+    {
+      "source": "model.language_model.layers.0.post_attention_layernorm.weight",
+      "target": "blk.0.post_attention_norm.weight",
+      "transform": "add 1",
+      "shape": [
+        5120
+      ],
+      "exact": true,
+      "max_abs": 0.0,
+      "rmse": 0.0,
+      "source_shard": "model-00001-of-00018.safetensors"
+    },
+    {
+      "source": "model.language_model.layers.0.linear_attn.norm.weight",
+      "target": "blk.0.ssm_norm.weight",
+      "transform": "identity",
+      "shape": [
+        128
+      ],
+      "exact": true,
+      "max_abs": 0.0,
+      "rmse": 0.0,
+      "source_shard": "model-00001-of-00018.safetensors"
+    },
+    {
+      "source": "model.language_model.layers.0.linear_attn.dt_bias",
+      "target": "blk.0.ssm_dt.bias",
+      "transform": "reorder V heads",
+      "shape": [
+        48
+      ],
+      "exact": true,
+      "max_abs": 0.0,
+      "rmse": 0.0,
+      "source_shard": "model-00001-of-00018.safetensors"
+    },
+    {
+      "source": "model.language_model.layers.0.linear_attn.A_log",
+      "target": "blk.0.ssm_a",
+      "transform": "reorder V heads then -exp in float32",
+      "shape": [
+        48
+      ],
+      "exact": true,
+      "max_abs": 0.0,
+      "rmse": 0.0,
+      "source_shard": "model-00001-of-00018.safetensors"
+    },
+    {
+      "source": "model.language_model.layers.0.linear_attn.conv1d.weight",
+      "target": "blk.0.ssm_conv1d.weight",
+      "transform": "squeeze and reorder V heads",
+      "shape": [
+        10240,
+        4
+      ],
+      "exact": true,
+      "max_abs": 0.0,
+      "rmse": 0.0,
+      "source_shard": "model-00001-of-00018.safetensors"
+    },
+    {
+      "source": "model.language_model.layers.20.input_layernorm.weight",
+      "target": "blk.20.attn_norm.weight",
+      "transform": "add 1",
+      "shape": [
+        5120
+      ],
+      "exact": true,
+      "max_abs": 0.0,
+      "rmse": 0.0,
+      "source_shard": "model-00006-of-00018.safetensors"
+    },
+    {
+      "source": "model.language_model.layers.20.post_attention_layernorm.weight",
+      "target": "blk.20.post_attention_norm.weight",
+      "transform": "add 1",
+      "shape": [
+        5120
+      ],
+      "exact": true,
+      "max_abs": 0.0,
+      "rmse": 0.0,
+      "source_shard": "model-00006-of-00018.safetensors"
+    },
+    {
+      "source": "model.language_model.layers.20.linear_attn.norm.weight",
+      "target": "blk.20.ssm_norm.weight",
+      "transform": "identity",
+      "shape": [
+        128
+      ],
+      "exact": true,
+      "max_abs": 0.0,
+      "rmse": 0.0,
+      "source_shard": "model-00006-of-00018.safetensors"
+    },
+    {
+      "source": "model.language_model.layers.20.linear_attn.dt_bias",
+      "target": "blk.20.ssm_dt.bias",
+      "transform": "reorder V heads",
+      "shape": [
+        48
+      ],
+      "exact": true,
+      "max_abs": 0.0,
+      "rmse": 0.0,
+      "source_shard": "model-00006-of-00018.safetensors"
+    },
+    {
+      "source": "model.language_model.layers.20.linear_attn.A_log",
+      "target": "blk.20.ssm_a",
+      "transform": "reorder V heads then -exp in float32",
+      "shape": [
+        48
+      ],
+      "exact": true,
+      "max_abs": 0.0,
+      "rmse": 0.0,
+      "source_shard": "model-00006-of-00018.safetensors"
+    },
+    {
+      "source": "model.language_model.layers.20.linear_attn.conv1d.weight",
+      "target": "blk.20.ssm_conv1d.weight",
+      "transform": "squeeze and reorder V heads",
+      "shape": [
+        10240,
+        4
+      ],
+      "exact": true,
+      "max_abs": 0.0,
+      "rmse": 0.0,
+      "source_shard": "model-00006-of-00018.safetensors"
+    },
+    {
+      "source": "model.language_model.layers.42.input_layernorm.weight",
+      "target": "blk.42.attn_norm.weight",
+      "transform": "add 1",
+      "shape": [
+        5120
+      ],
+      "exact": true,
+      "max_abs": 0.0,
+      "rmse": 0.0,
+      "source_shard": "model-00012-of-00018.safetensors"
+    },
+    {
+      "source": "model.language_model.layers.42.post_attention_layernorm.weight",
+      "target": "blk.42.post_attention_norm.weight",
+      "transform": "add 1",
+      "shape": [
+        5120
+      ],
+      "exact": true,
+      "max_abs": 0.0,
+      "rmse": 0.0,
+      "source_shard": "model-00012-of-00018.safetensors"
+    },
+    {
+      "source": "model.language_model.layers.42.linear_attn.norm.weight",
+      "target": "blk.42.ssm_norm.weight",
+      "transform": "identity",
+      "shape": [
+        128
+      ],
+      "exact": true,
+      "max_abs": 0.0,
+      "rmse": 0.0,
+      "source_shard": "model-00012-of-00018.safetensors"
+    },
+    {
+      "source": "model.language_model.layers.42.linear_attn.dt_bias",
+      "target": "blk.42.ssm_dt.bias",
+      "transform": "reorder V heads",
+      "shape": [
+        48
+      ],
+      "exact": true,
+      "max_abs": 0.0,
+      "rmse": 0.0,
+      "source_shard": "model-00012-of-00018.safetensors"
+    },
+    {
+      "source": "model.language_model.layers.42.linear_attn.A_log",
+      "target": "blk.42.ssm_a",
+      "transform": "reorder V heads then -exp in float32",
+      "shape": [
+        48
+      ],
+      "exact": true,
+      "max_abs": 0.0,
+      "rmse": 0.0,
+      "source_shard": "model-00012-of-00018.safetensors"
+    },
+    {
+      "source": "model.language_model.layers.42.linear_attn.conv1d.weight",
+      "target": "blk.42.ssm_conv1d.weight",
+      "transform": "squeeze and reorder V heads",
+      "shape": [
+        10240,
+        4
+      ],
+      "exact": true,
+      "max_abs": 0.0,
+      "rmse": 0.0,
+      "source_shard": "model-00012-of-00018.safetensors"
+    },
+    {
+      "source": "model.language_model.layers.60.input_layernorm.weight",
+      "target": "blk.60.attn_norm.weight",
+      "transform": "add 1",
+      "shape": [
+        5120
+      ],
+      "exact": true,
+      "max_abs": 0.0,
+      "rmse": 0.0,
+      "source_shard": "model-00016-of-00018.safetensors"
+    },
+    {
+      "source": "model.language_model.layers.60.post_attention_layernorm.weight",
+      "target": "blk.60.post_attention_norm.weight",
+      "transform": "add 1",
+      "shape": [
+        5120
+      ],
+      "exact": true,
+      "max_abs": 0.0,
+      "rmse": 0.0,
+      "source_shard": "model-00016-of-00018.safetensors"
+    },
+    {
+      "source": "model.language_model.layers.60.linear_attn.norm.weight",
+      "target": "blk.60.ssm_norm.weight",
+      "transform": "identity",
+      "shape": [
+        128
+      ],
+      "exact": true,
+      "max_abs": 0.0,
+      "rmse": 0.0,
+      "source_shard": "model-00016-of-00018.safetensors"
+    },
+    {
+      "source": "model.language_model.layers.60.linear_attn.dt_bias",
+      "target": "blk.60.ssm_dt.bias",
+      "transform": "reorder V heads",
+      "shape": [
+        48
+      ],
+      "exact": true,
+      "max_abs": 0.0,
+      "rmse": 0.0,
+      "source_shard": "model-00016-of-00018.safetensors"
+    },
+    {
+      "source": "model.language_model.layers.60.linear_attn.A_log",
+      "target": "blk.60.ssm_a",
+      "transform": "reorder V heads then -exp in float32",
+      "shape": [
+        48
+      ],
+      "exact": true,
+      "max_abs": 0.0,
+      "rmse": 0.0,
+      "source_shard": "model-00016-of-00018.safetensors"
+    },
+    {
+      "source": "model.language_model.layers.60.linear_attn.conv1d.weight",
+      "target": "blk.60.ssm_conv1d.weight",
+      "transform": "squeeze and reorder V heads",
+      "shape": [
+        10240,
+        4
+      ],
+      "exact": true,
+      "max_abs": 0.0,
+      "rmse": 0.0,
+      "source_shard": "model-00016-of-00018.safetensors"
+    },
+    {
+      "source": "model.language_model.layers.63.input_layernorm.weight",
+      "target": "blk.63.attn_norm.weight",
+      "transform": "add 1",
+      "shape": [
+        5120
+      ],
+      "exact": true,
+      "max_abs": 0.0,
+      "rmse": 0.0,
+      "source_shard": "model-00017-of-00018.safetensors"
+    },
+    {
+      "source": "model.language_model.layers.63.post_attention_layernorm.weight",
+      "target": "blk.63.post_attention_norm.weight",
+      "transform": "add 1",
+      "shape": [
+        5120
+      ],
+      "exact": true,
+      "max_abs": 0.0,
+      "rmse": 0.0,
+      "source_shard": "model-00017-of-00018.safetensors"
+    },
+    {
+      "source": "model.language_model.norm.weight",
+      "target": "output_norm.weight",
+      "transform": "add 1",
+      "shape": [
+        5120
+      ],
+      "exact": true,
+      "max_abs": 0.0,
+      "rmse": 0.0,
+      "source_shard": "model-00016-of-00018.safetensors"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "path": "/home/hycris/item23-independent-reference-20261102/model-f32.gguf",
+  "tensor_count": 866,
+  "type_counts": {
+    "F32": 866
+  },
+  "non_f32_tensors": [],
+  "ok": true,
+  "policy": "all GGUF tensors must be F32; no tensor exceptions accepted"
+}
