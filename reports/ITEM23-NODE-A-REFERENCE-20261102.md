@@ -46,7 +46,7 @@ An isolated upstream build at `785322d17f2d51e5185cf996a1f4e46d87640841` was com
 
 This used one exact 2,048-token prefix, 128 greedy output tokens and three warm runs per build. All six output token sequences were identical. The measured gains are approximately 27.8% for prompt processing and 2.6% for generation on this workload. Runs were grouped by build; this is not a general production speed claim. A separate interleaved combined autoregressive benchmark showed about 7.17% higher throughput.
 
-The upstream CPU F32 candidate also matched all selected short/request reference top tokens in both modes, with mean KL 3.28e-12–8.76e-12. Its Vulkan server remains available on node A at `/home/hycris/item23-independent-reference-20261102/benchmark-upstream/build/bin/llama-server`. It is a tested candidate, not a deployed upgrade. See the [MTP report](item23-reference-20261102/diagnostic-upstream-gpu/REPORT.md) and [independent follow-up](item23-reference-20261102/diagnostic-upstream-cpu/FOLLOWUP-REPORT.md).
+The upstream CPU F32 candidate also matched all selected short/request reference top tokens in both modes, with mean KL 3.28e-12–8.76e-12. Its Vulkan server remains available on node A at `<NODE_A_HOME>/item23-independent-reference-20261102/benchmark-upstream/build/bin/llama-server`. It is a tested candidate, not a deployed upgrade. See the [MTP report](item23-reference-20261102/diagnostic-upstream-gpu/REPORT.md) and [independent follow-up](item23-reference-20261102/diagnostic-upstream-cpu/FOLLOWUP-REPORT.md).
 
 ## Patch and evidence
 

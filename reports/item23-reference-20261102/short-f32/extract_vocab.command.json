@@ -1,9 +1,9 @@
 {
   "argv": [
     "python3",
-    "/home/hycris/item23-independent-reference-20261102/cases/extract_gguf_vocab.py",
-    "/home/hycris/item23-independent-reference-20261102/model-f32.gguf",
-    "/home/hycris/item23-independent-reference-20261102/results-short-final-20261102/f32-vocab.json"
+    "<NODE_A_HOME>/item23-independent-reference-20261102/cases/extract_gguf_vocab.py",
+    "<NODE_A_HOME>/item23-independent-reference-20261102/model-f32.gguf",
+    "<NODE_A_HOME>/item23-independent-reference-20261102/results-short-final-20261102/f32-vocab.json"
   ],
-  "cwd": "/home/hycris/item23-independent-reference-20261102"
+  "cwd": "<NODE_A_HOME>/item23-independent-reference-20261102"
 }

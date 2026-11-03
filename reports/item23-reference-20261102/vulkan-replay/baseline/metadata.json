@@ -1,8 +1,8 @@
 {
   "command": [
-    "/home/hycris/item23-independent-reference-20261102/llama/build-vulkan-unpatched/bin/llama-server",
+    "<NODE_A_HOME>/item23-independent-reference-20261102/llama/build-vulkan-unpatched/bin/llama-server",
     "-m",
-    "/home/hycris/models/Qwen3.8/Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf",
+    "<NODE_A_HOME>/models/Qwen3.8/Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf",
     "-ngl",
     "99",
     "-c",
@@ -115,7 +115,7 @@
     "total_slots": 1,
     "model_alias": "qwen3.8-27b-gsq-rco-iq3s-mtp",
     "model_ftype": "IQ3_S - 3.4375 bpw",
-    "model_path": "/home/hycris/models/Qwen3.8/Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf",
+    "model_path": "<NODE_A_HOME>/models/Qwen3.8/Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf",
     "modalities": {
       "vision": false,
       "video": false,

@@ -2,7 +2,7 @@
   "repo": "Qwen/Qwen3.8-27B",
   "revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
   "verification_sha256": "9ec235618a81b617b75b9014d5358de5f0dde156bc931c227523156a56b76711",
-  "iq3_gguf": "/home/hycris/models/Qwen3.8/Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf",
+  "iq3_gguf": "<NODE_A_HOME>/models/Qwen3.8/Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf",
   "note": "Selected retained tensors only; matches support lineage, not complete source revision identity. F32 transcendental transforms can differ by implementation.",
   "checks": [
     {

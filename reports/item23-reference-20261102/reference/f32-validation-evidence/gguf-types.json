@@ -1,5 +1,5 @@
 {
-  "path": "/home/hycris/item23-independent-reference-20261102/model-f32.gguf",
+  "path": "<NODE_A_HOME>/item23-independent-reference-20261102/model-f32.gguf",
   "tensor_count": 866,
   "type_counts": {
     "F32": 866

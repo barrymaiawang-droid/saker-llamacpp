@@ -1,13 +1,13 @@
 {
   "command": [
-    "/home/hycris/item23-independent-reference-20261102/llama/export-unpatched",
-    "/home/hycris/models/Qwen3.8/Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf",
-    "/home/hycris/item23-independent-reference-20261102/llama/results-iq3/request_prefill_cached_suffix-token_ids.txt",
-    "/home/hycris/item23-independent-reference-20261102/llama/results-iq3/request_prefill_cached_suffix-positions.txt",
+    "<NODE_A_HOME>/item23-independent-reference-20261102/llama/export-unpatched",
+    "<NODE_A_HOME>/models/Qwen3.8/Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf",
+    "<NODE_A_HOME>/item23-independent-reference-20261102/llama/results-iq3/request_prefill_cached_suffix-token_ids.txt",
+    "<NODE_A_HOME>/item23-independent-reference-20261102/llama/results-iq3/request_prefill_cached_suffix-positions.txt",
     "prefill",
     "0",
     "16",
-    "/home/hycris/item23-independent-reference-20261102/diagnostic-upstream-cpu/iq3-request-chunk256/unpatched-prefill.f32",
+    "<NODE_A_HOME>/item23-independent-reference-20261102/diagnostic-upstream-cpu/iq3-request-chunk256/unpatched-prefill.f32",
     "256"
   ],
   "elapsed": 39.58149228300317,

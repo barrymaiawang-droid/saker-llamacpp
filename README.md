@@ -268,3 +268,10 @@ git diff 9d57ce456 -- \
   tools/llama-bench/llama-bench.cpp tools/server/server-context.cpp tests/test-backend-ops.cpp \
   > patches/saker-combined.patch
 ```
+
+## Paths in reports
+
+Report and evidence files under `reports/` use `<NODE_A_HOME>` and `<NODE_B_HOME>` in
+place of the home directories of the two machines used for the measurements. They are
+placeholders, not paths that exist in this repository. `tools/verify_bit_exact.py` takes its
+node-local paths from `SAKER_BX_*` environment variables, defaulting to the invoking user's home.

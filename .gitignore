@@ -1,3 +1,21 @@
 *.orig-saker
 __pycache__/
 *.py[cod]
+
+# Secrets and local configuration: never commit these
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+*.token
+*.secret
+secrets.*
+credentials.*
+.netrc
+.npmrc
+.pypirc

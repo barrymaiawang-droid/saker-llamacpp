@@ -1,16 +1,16 @@
 [
   "python3",
-  "/home/hycris/item23-independent-reference-20261102/llama/package_logits.py",
+  "<NODE_A_HOME>/item23-independent-reference-20261102/llama/package_logits.py",
   "--tokens",
-  "/home/hycris/item23-independent-reference-20261102/results-long-20261102/html-tokens.txt",
+  "<NODE_A_HOME>/item23-independent-reference-20261102/results-long-20261102/html-tokens.txt",
   "--positions",
-  "/home/hycris/item23-independent-reference-20261102/results-long-20261102/html-positions.txt",
+  "<NODE_A_HOME>/item23-independent-reference-20261102/results-long-20261102/html-positions.txt",
   "--raw",
-  "/home/hycris/item23-independent-reference-20261102/results-long-20261102/html-unpatched-chunked.f32",
+  "<NODE_A_HOME>/item23-independent-reference-20261102/results-long-20261102/html-unpatched-chunked.f32",
   "--vocab",
   "248320",
   "--output",
-  "/home/hycris/item23-independent-reference-20261102/results-long-20261102/html-unpatched-chunked.npz",
+  "<NODE_A_HOME>/item23-independent-reference-20261102/results-long-20261102/html-unpatched-chunked.npz",
   "--metadata",
-  "/home/hycris/item23-independent-reference-20261102/results-long-20261102/html-unpatched-chunked-metadata.json"
+  "<NODE_A_HOME>/item23-independent-reference-20261102/results-long-20261102/html-unpatched-chunked-metadata.json"
 ]

@@ -1,8 +1,8 @@
 {
   "command": [
-    "/home/hycris/item23-independent-reference-20261102/benchmark-upstream/build/bin/llama-server",
+    "<NODE_A_HOME>/item23-independent-reference-20261102/benchmark-upstream/build/bin/llama-server",
     "-m",
-    "/home/hycris/models/Qwen3.8/Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf",
+    "<NODE_A_HOME>/models/Qwen3.8/Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf",
     "-ngl",
     "99",
     "-c",
@@ -91,12 +91,12 @@
   ],
   "load_seconds": 2.0030044470040593,
   "loaded_library_sha256": {
-    "/home/hycris/item23-independent-reference-20261102/benchmark-upstream/build/bin/libggml-base.so.0.28.0": "cb7a9b284c0e2ca027644c9523569d9bbefca81a299949234b2e5c2804fb6e0f",
-    "/home/hycris/item23-independent-reference-20261102/benchmark-upstream/build/bin/libggml-cpu.so.0.28.0": "139b5a2aba6095b87acba8be9eab39ba86f112b67d719ccdcfa79a82d11c1bab",
-    "/home/hycris/item23-independent-reference-20261102/benchmark-upstream/build/bin/libggml-vulkan.so.0.28.0": "e07dae17fee78e3f7184f7c83f8c53d5a890369746f5dcef4a20fbdc01066564",
-    "/home/hycris/item23-independent-reference-20261102/benchmark-upstream/build/bin/libggml.so.0.28.0": "130cd3f484a0bc36fd8d5e41c3be8bf80fedb05fca4d59708509f4acada284c1",
-    "/home/hycris/item23-independent-reference-20261102/benchmark-upstream/build/bin/libllama-common.so.0.8.0": "6badad885d45854e92a49d75c024124c8db931517f4f05468e08b2213b12616f",
-    "/home/hycris/item23-independent-reference-20261102/benchmark-upstream/build/bin/libllama-server-impl.so": "5bf1fa858ca8be1ee079e3eed0e4bc15c74b4fad5b32fc75ed76bbb4bc9a1fe4",
-    "/home/hycris/item23-independent-reference-20261102/benchmark-upstream/build/bin/libllama.so.0.8.0": "a076f9997dd81635cf096da556a450c663fc204f0333013fa41656ca3ee855fd"
+    "<NODE_A_HOME>/item23-independent-reference-20261102/benchmark-upstream/build/bin/libggml-base.so.0.28.0": "cb7a9b284c0e2ca027644c9523569d9bbefca81a299949234b2e5c2804fb6e0f",
+    "<NODE_A_HOME>/item23-independent-reference-20261102/benchmark-upstream/build/bin/libggml-cpu.so.0.28.0": "139b5a2aba6095b87acba8be9eab39ba86f112b67d719ccdcfa79a82d11c1bab",
+    "<NODE_A_HOME>/item23-independent-reference-20261102/benchmark-upstream/build/bin/libggml-vulkan.so.0.28.0": "e07dae17fee78e3f7184f7c83f8c53d5a890369746f5dcef4a20fbdc01066564",
+    "<NODE_A_HOME>/item23-independent-reference-20261102/benchmark-upstream/build/bin/libggml.so.0.28.0": "130cd3f484a0bc36fd8d5e41c3be8bf80fedb05fca4d59708509f4acada284c1",
+    "<NODE_A_HOME>/item23-independent-reference-20261102/benchmark-upstream/build/bin/libllama-common.so.0.8.0": "6badad885d45854e92a49d75c024124c8db931517f4f05468e08b2213b12616f",
+    "<NODE_A_HOME>/item23-independent-reference-20261102/benchmark-upstream/build/bin/libllama-server-impl.so": "5bf1fa858ca8be1ee079e3eed0e4bc15c74b4fad5b32fc75ed76bbb4bc9a1fe4",
+    "<NODE_A_HOME>/item23-independent-reference-20261102/benchmark-upstream/build/bin/libllama.so.0.8.0": "a076f9997dd81635cf096da556a450c663fc204f0333013fa41656ca3ee855fd"
   }
 }

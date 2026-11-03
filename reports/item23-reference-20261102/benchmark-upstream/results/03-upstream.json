@@ -5,7 +5,7 @@
     "cpu_info": "AMD RYZEN AI MAX+ 395 w/ Radeon 8060S",
     "gpu_info": "AMD Radeon 8060S Graphics (RADV STRIX_HALO)",
     "backends": "Vulkan",
-    "model_filename": "/home/hycris/models/Qwen3.8/Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf",
+    "model_filename": "<NODE_A_HOME>/models/Qwen3.8/Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf",
     "model_type": "qwen35 27B IQ3_S - 3.4375 bpw",
     "model_size": 12109021184,
     "model_n_params": 27320697856,

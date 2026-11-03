@@ -1,6 +1,6 @@
 {
-  "reference": "/home/hycris/item23-independent-reference-20261102/results-short-final-20261102/hf-prefill.npz",
-  "candidate": "/home/hycris/item23-independent-reference-20261102/results-short-final-20261102/patched-prefill.npz",
+  "reference": "<NODE_A_HOME>/item23-independent-reference-20261102/results-short-final-20261102/hf-prefill.npz",
+  "candidate": "<NODE_A_HOME>/item23-independent-reference-20261102/results-short-final-20261102/patched-prefill.npz",
   "vocab_sha256": "5ee0f927bcaa4b9fe85c244776ae9487468e427f83e053fc81f2a186f14936a3",
   "token_ids_sha256_le_i64": "37f17136949942700af6df6dab88e9eccad4c02f6237dc46e34c636a755e048d",
   "vocab_size": 248320,

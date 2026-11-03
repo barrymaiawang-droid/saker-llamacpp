@@ -1,6 +1,6 @@
 {
-  "reference": "/home/hycris/item23-independent-reference-20261102/results-long-20261102/html-unpatched-chunked.npz",
-  "candidate": "/home/hycris/item23-independent-reference-20261102/results-long-20261102/html-patched-chunked.npz",
+  "reference": "<NODE_A_HOME>/item23-independent-reference-20261102/results-long-20261102/html-unpatched-chunked.npz",
+  "candidate": "<NODE_A_HOME>/item23-independent-reference-20261102/results-long-20261102/html-patched-chunked.npz",
   "vocab_sha256": "5ee0f927bcaa4b9fe85c244776ae9487468e427f83e053fc81f2a186f14936a3",
   "token_ids_sha256_le_i64": "c93821803b96b0c563d0e322725482d989422997ea5c32654e93e465f199d955",
   "vocab_size": 248320,

@@ -2,9 +2,9 @@
   "order": 4,
   "variant": "patched",
   "command": [
-    "/home/hycris/item23-independent-reference-20261102/llama/build-vulkan-patched/bin/llama-bench",
+    "<NODE_A_HOME>/item23-independent-reference-20261102/llama/build-vulkan-patched/bin/llama-bench",
     "-m",
-    "/home/hycris/models/Qwen3.8/Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf",
+    "<NODE_A_HOME>/models/Qwen3.8/Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf",
     "-p",
     "0",
     "-n",

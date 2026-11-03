@@ -6,11 +6,11 @@ This directory contains selected, unchanged evidence from the completed node A i
 
 The complete local investigation is:
 
-`/home/hycris/Documents/Codex/2026-11-02/the-item-2-has-similar-issues/work/node-a-independent-reference-20261102`
+`<NODE_A_HOME>/Documents/Codex/2026-11-02/the-item-2-has-similar-issues/work/node-a-independent-reference-20261102`
 
 The node A investigation is:
 
-`/home/hycris/item23-independent-reference-20261102`
+`<NODE_A_HOME>/item23-independent-reference-20261102`
 
 The original reference outputs and commands are identified in each comparison and command JSON. The complete local folders `short-f32/`, `long-f32/` and `diagnostic-upstream-cpu/` retain the raw NPZ arrays; model files remain on node A. The same retained comparator can recompute a summary with:
 

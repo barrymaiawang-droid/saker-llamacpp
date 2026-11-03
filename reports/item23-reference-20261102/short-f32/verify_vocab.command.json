@@ -1,11 +1,11 @@
 {
   "argv": [
     "python3",
-    "/home/hycris/item23-independent-reference-20261102/cases/verify_vocab.py",
-    "/home/hycris/item23-independent-reference-20261102/model/tokenizer.json",
-    "/home/hycris/item23-independent-reference-20261102/results-short-final-20261102/f32-vocab.json",
+    "<NODE_A_HOME>/item23-independent-reference-20261102/cases/verify_vocab.py",
+    "<NODE_A_HOME>/item23-independent-reference-20261102/model/tokenizer.json",
+    "<NODE_A_HOME>/item23-independent-reference-20261102/results-short-final-20261102/f32-vocab.json",
     "--output",
-    "/home/hycris/item23-independent-reference-20261102/results-short-final-20261102/f32-vocab-validation.json"
+    "<NODE_A_HOME>/item23-independent-reference-20261102/results-short-final-20261102/f32-vocab-validation.json"
   ],
-  "cwd": "/home/hycris/item23-independent-reference-20261102"
+  "cwd": "<NODE_A_HOME>/item23-independent-reference-20261102"
 }

@@ -1,8 +1,8 @@
 [
   "python3",
-  "/home/hycris/item23-independent-reference-20261102/cases/compare_logits.py",
-  "/home/hycris/item23-independent-reference-20261102/results-long-20261102/hf-html-chunked.npz",
-  "/home/hycris/item23-independent-reference-20261102/results-long-20261102/html-unpatched-chunked.npz",
+  "<NODE_A_HOME>/item23-independent-reference-20261102/cases/compare_logits.py",
+  "<NODE_A_HOME>/item23-independent-reference-20261102/results-long-20261102/hf-html-chunked.npz",
+  "<NODE_A_HOME>/item23-independent-reference-20261102/results-long-20261102/html-unpatched-chunked.npz",
   "--output",
-  "/home/hycris/item23-independent-reference-20261102/results-long-20261102/html-unpatched-chunked-vs-hf.json"
+  "<NODE_A_HOME>/item23-independent-reference-20261102/results-long-20261102/html-unpatched-chunked-vs-hf.json"
 ]

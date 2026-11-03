@@ -133,7 +133,7 @@
   ],
   "id_slot": 0,
   "stop": true,
-  "model": "/home/hycris/models/Qwen3.8/Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf",
+  "model": "<NODE_A_HOME>/models/Qwen3.8/Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf",
   "tokens_predicted": 128,
   "tokens_evaluated": 2048,
   "generation_settings": {

@@ -1,8 +1,8 @@
 {
   "command": [
-    "/home/hycris/item23-independent-reference-20261102/llama/build-vulkan-patched/bin/llama-server",
+    "<NODE_A_HOME>/item23-independent-reference-20261102/llama/build-vulkan-patched/bin/llama-server",
     "-m",
-    "/home/hycris/models/Qwen3.8/Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf",
+    "<NODE_A_HOME>/models/Qwen3.8/Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf",
     "-ngl",
     "99",
     "-c",
@@ -91,12 +91,12 @@
   ],
   "load_seconds": 2.508022662019357,
   "loaded_library_sha256": {
-    "/home/hycris/item23-independent-reference-20261102/llama/build-vulkan-patched/bin/libggml-base.so.0.20.0": "2953b419f162555962a23d2d97ba256b6124dfb3048693155df5d0347d942fc9",
-    "/home/hycris/item23-independent-reference-20261102/llama/build-vulkan-patched/bin/libggml-cpu.so.0.20.0": "41511f6c075a82bde45ddf6a8ed36685217f324e73a05eecf5f80164b0cee7cd",
-    "/home/hycris/item23-independent-reference-20261102/llama/build-vulkan-patched/bin/libggml-vulkan.so.0.20.0": "0c3d9832175bf495794fd38b3ff6856a8214f632d9987bfdf859e5a93c80b454",
-    "/home/hycris/item23-independent-reference-20261102/llama/build-vulkan-patched/bin/libggml.so.0.20.0": "5e680957bc53e6188a0df92997eb854d37995e4dabd4d7dbd92706a8f1f02fa9",
-    "/home/hycris/item23-independent-reference-20261102/llama/build-vulkan-patched/bin/libllama-common.so.0.1.0": "c85b85bcc49bfbfae7e4ad6a70269e5fa525ad4905f8ba54fc600c36afe8421b",
-    "/home/hycris/item23-independent-reference-20261102/llama/build-vulkan-patched/bin/libllama-server-impl.so": "4b568ca04ac07682317f674422e70197bfc3020667cdf9db442b2b0ea14e86c3",
-    "/home/hycris/item23-independent-reference-20261102/llama/build-vulkan-patched/bin/libllama.so.0.1.0": "2621906be2bdb440f75ef613c8a34f149ddc370e835f11c5aa86794407ffa43f"
+    "<NODE_A_HOME>/item23-independent-reference-20261102/llama/build-vulkan-patched/bin/libggml-base.so.0.20.0": "2953b419f162555962a23d2d97ba256b6124dfb3048693155df5d0347d942fc9",
+    "<NODE_A_HOME>/item23-independent-reference-20261102/llama/build-vulkan-patched/bin/libggml-cpu.so.0.20.0": "41511f6c075a82bde45ddf6a8ed36685217f324e73a05eecf5f80164b0cee7cd",
+    "<NODE_A_HOME>/item23-independent-reference-20261102/llama/build-vulkan-patched/bin/libggml-vulkan.so.0.20.0": "0c3d9832175bf495794fd38b3ff6856a8214f632d9987bfdf859e5a93c80b454",
+    "<NODE_A_HOME>/item23-independent-reference-20261102/llama/build-vulkan-patched/bin/libggml.so.0.20.0": "5e680957bc53e6188a0df92997eb854d37995e4dabd4d7dbd92706a8f1f02fa9",
+    "<NODE_A_HOME>/item23-independent-reference-20261102/llama/build-vulkan-patched/bin/libllama-common.so.0.1.0": "c85b85bcc49bfbfae7e4ad6a70269e5fa525ad4905f8ba54fc600c36afe8421b",
+    "<NODE_A_HOME>/item23-independent-reference-20261102/llama/build-vulkan-patched/bin/libllama-server-impl.so": "4b568ca04ac07682317f674422e70197bfc3020667cdf9db442b2b0ea14e86c3",
+    "<NODE_A_HOME>/item23-independent-reference-20261102/llama/build-vulkan-patched/bin/libllama.so.0.1.0": "2621906be2bdb440f75ef613c8a34f149ddc370e835f11c5aa86794407ffa43f"
   }
 }

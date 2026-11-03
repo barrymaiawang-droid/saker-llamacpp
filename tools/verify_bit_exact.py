@@ -36,12 +36,17 @@ import sys
 import time
 import urllib.request
 
-MODEL = "/home/hycris/models/Swift-1.5-Qwen3.8-27B-GSQ-RCO/Swift-1.5-Qwen3.8-27B-GSQ-RCO-IQ2_S-mtp.gguf"
-PATCHED = "/home/hycris/llama.cpp-qwen38-merge/build/bin/llama-server"
-GENERIC = "/home/hycris/llama.cpp-qwen38/build/bin/llama-server"
-LOCK = "/home/hycris/talon-out/saker/decode-ilp-20261019/gpu-lock.sh"
-LAUNCHER = "/home/hycris/launch-saker.sh"
-OUT = "/home/hycris/talon-out/saker/decode-ilp-20261019/pathB-bitexact"
+# Node-local paths. Override each with the SAKER_BX_* environment variable of the same name;
+# the defaults are relative to the invoking user's home directory.
+def _node_path(name, default):
+    return os.environ.get("SAKER_BX_" + name, os.path.expanduser(default))
+
+MODEL = _node_path("MODEL", "~/models/Swift-1.5-Qwen3.8-27B-GSQ-RCO/Swift-1.5-Qwen3.8-27B-GSQ-RCO-IQ2_S-mtp.gguf")
+PATCHED = _node_path("PATCHED", "~/llama.cpp-qwen38-merge/build/bin/llama-server")
+GENERIC = _node_path("GENERIC", "~/llama.cpp-qwen38/build/bin/llama-server")
+LOCK = _node_path("LOCK", "~/talon-out/saker/decode-ilp-20261019/gpu-lock.sh")
+LAUNCHER = _node_path("LAUNCHER", "~/launch-saker.sh")
+OUT = _node_path("OUT", "~/talon-out/saker/decode-ilp-20261019/pathB-bitexact")
 PORT = 18260
 ALIAS = "bx"
 

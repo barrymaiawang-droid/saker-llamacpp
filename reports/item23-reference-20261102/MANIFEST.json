@@ -1,6 +1,6 @@
 {
-  "source_root": "/home/hycris/Documents/Codex/2026-11-02/the-item-2-has-similar-issues/work/node-a-independent-reference-20261102",
-  "raw_node_a_root": "/home/hycris/item23-independent-reference-20261102",
+  "source_root": "<NODE_A_HOME>/Documents/Codex/2026-11-02/the-item-2-has-similar-issues/work/node-a-independent-reference-20261102",
+  "raw_node_a_root": "<NODE_A_HOME>/item23-independent-reference-20261102",
   "copied": [
     {
       "path": "benchmark-upstream/REPORT.md",

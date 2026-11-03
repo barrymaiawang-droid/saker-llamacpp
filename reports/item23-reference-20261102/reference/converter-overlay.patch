@@ -1,5 +1,5 @@
---- /home/hycris/item23-independent-reference-20261102/llama/source-unpatched/gguf-py/gguf/gguf_writer.py	2026-08-15 08:25:26.000000000 +1000
-+++ /home/hycris/item23-independent-reference-20261102/converter-overlay/gguf/gguf_writer.py	2026-11-02 17:55:50.687325511 +1100
+--- <NODE_A_HOME>/item23-independent-reference-20261102/llama/source-unpatched/gguf-py/gguf/gguf_writer.py	2026-08-15 08:25:26.000000000 +1000
++++ <NODE_A_HOME>/item23-independent-reference-20261102/converter-overlay/gguf/gguf_writer.py	2026-11-02 17:55:50.687325511 +1100
 @@ -16,6 +16,8 @@
  
  import numpy as np

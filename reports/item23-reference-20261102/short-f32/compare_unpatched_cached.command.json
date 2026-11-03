@@ -1,11 +1,11 @@
 {
   "argv": [
     "python3",
-    "/home/hycris/item23-independent-reference-20261102/cases/compare_logits.py",
-    "/home/hycris/item23-independent-reference-20261102/results-short-final-20261102/hf-cached.npz",
-    "/home/hycris/item23-independent-reference-20261102/results-short-final-20261102/unpatched-cached.npz",
+    "<NODE_A_HOME>/item23-independent-reference-20261102/cases/compare_logits.py",
+    "<NODE_A_HOME>/item23-independent-reference-20261102/results-short-final-20261102/hf-cached.npz",
+    "<NODE_A_HOME>/item23-independent-reference-20261102/results-short-final-20261102/unpatched-cached.npz",
     "--output",
-    "/home/hycris/item23-independent-reference-20261102/results-short-final-20261102/unpatched-cached-comparison.json"
+    "<NODE_A_HOME>/item23-independent-reference-20261102/results-short-final-20261102/unpatched-cached-comparison.json"
   ],
-  "cwd": "/home/hycris/item23-independent-reference-20261102"
+  "cwd": "<NODE_A_HOME>/item23-independent-reference-20261102"
 }

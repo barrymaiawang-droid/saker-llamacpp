@@ -104,4 +104,4 @@ After fixes: `test-saker-selectors` PASS 24 cases on **CPU and Vulkan0**, ctest 
 
 - Speed: `talon-out/saker/sparq-bench-20261021/bench.jsonl` (AR), `sparq-mtp-20261021/bench.jsonl` (MTP)
 - PPL: `sparq-ppl-20261021/` (wikitext), `sparq-ppl-id-20261021/` (project source)
-- Fixes: `/home/hycris/saker-sparq-fix-vulkan-inf.patch`, `~/sparq-base` working tree
+- Fixes: `~/saker-sparq-fix-vulkan-inf.patch`, `~/sparq-base` working tree

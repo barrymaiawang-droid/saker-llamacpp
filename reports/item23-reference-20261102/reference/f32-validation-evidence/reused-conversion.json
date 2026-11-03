@@ -1,7 +1,7 @@
 {
-  "prior_result": "/home/hycris/item23-independent-reference-20261102/results-short-retry-20261102",
-  "gguf": "/home/hycris/item23-independent-reference-20261102/model-f32.gguf",
+  "prior_result": "<NODE_A_HOME>/item23-independent-reference-20261102/results-short-retry-20261102",
+  "gguf": "<NODE_A_HOME>/item23-independent-reference-20261102/model-f32.gguf",
   "bytes": 109293786368,
   "mtime_ns": 1793602755763353053,
-  "prior_overlay_provenance": "/home/hycris/item23-independent-reference-20261102/results-short-retry-20261102/converter-overlay-provenance.json"
+  "prior_overlay_provenance": "<NODE_A_HOME>/item23-independent-reference-20261102/results-short-retry-20261102/converter-overlay-provenance.json"
 }

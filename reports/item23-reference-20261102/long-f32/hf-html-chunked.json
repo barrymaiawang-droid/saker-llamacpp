@@ -32,7 +32,7 @@
     13,
     248320
   ],
-  "model_path": "/home/hycris/item23-independent-reference-20261102/model",
+  "model_path": "<NODE_A_HOME>/item23-independent-reference-20261102/model",
   "memory_status": {
     "VmSize": "114682316 kB",
     "VmHWM": "122055668 kB",

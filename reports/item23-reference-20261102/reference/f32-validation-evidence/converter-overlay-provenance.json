@@ -1,9 +1,9 @@
 {
-  "overlay_writer": "/home/hycris/item23-independent-reference-20261102/converter-overlay/gguf/gguf_writer.py",
+  "overlay_writer": "<NODE_A_HOME>/item23-independent-reference-20261102/converter-overlay/gguf/gguf_writer.py",
   "sha256": "429f8bb0003c8d37d24907a40a8369c920f98677b9780b0544a324138e45c1af",
-  "tests": "/home/hycris/item23-independent-reference-20261102/converter-overlay-tests.json",
-  "real_tensor_pilot": "/home/hycris/item23-independent-reference-20261102/converter-real-tensor-pilot.json",
-  "writer_e2e_tests": "/home/hycris/item23-independent-reference-20261102/converter-e2e-tests.json",
+  "tests": "<NODE_A_HOME>/item23-independent-reference-20261102/converter-overlay-tests.json",
+  "real_tensor_pilot": "<NODE_A_HOME>/item23-independent-reference-20261102/converter-real-tensor-pilot.json",
+  "writer_e2e_tests": "<NODE_A_HOME>/item23-independent-reference-20261102/converter-e2e-tests.json",
   "NO_LOCAL_GGUF": "1",
-  "PYTHONPATH": "/home/hycris/item23-independent-reference-20261102/converter-overlay"
+  "PYTHONPATH": "<NODE_A_HOME>/item23-independent-reference-20261102/converter-overlay"
 }
