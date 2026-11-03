@@ -1,0 +1,186 @@
+diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+--- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
++++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+@@ -4281,13 +4281,10 @@
+         s_warptile_mmqid_int_k = { mul_mat_subgroup_size_32, 32,  32, 32, s_warptile_wm,                32, 1, 2, 1, 1, mul_mat_subgroup_size_16 };
+ 
+         // chip specific tuning
+-        // saker: APU (UMA) retune flag for the large quant-matmul tile. The generic AMD-coopmat
+-        // values below are tuned for dGPUs; on gfx1151 (RDNA3.5 APU, 40 CU, 64 KB smem) they run
+-        // pp2048 at ~299 t/s while BN=256 with wg_denoms {128,256} gives ~410 (+37%, byte-identical
+-        // output verified). Disable with SAKER_APU_MMQ=0. NOTE: arms reporting 490-775 t/s via
+-        // BLOCK_SIZE/BM changes were falsified - see the comment in the branch below.
++        // Use the larger quantized tile on AMD UMA; SAKER_APU_MMQ=0 keeps the stock tile.
+         const bool saker_apu_tune = device->vendor_id == VK_VENDOR_ID_AMD && device->uma &&
+                                    !(getenv("SAKER_APU_MMQ") && getenv("SAKER_APU_MMQ")[0] == '0');
++        bool saker_apu_mmq_retuned = false;
+         if ((device->architecture == AMD_GCN) && (device->driver_id != vk::DriverId::eAmdProprietary)) {
+             m_warptile_mmq = m_warptile_mmq_int = { 256, 64, 64, 32, 16, 16, 2, 2, 2, 1, 16 };
+             m_warptile_mmqid = m_warptile_mmqid_int = { 256, 64, 64, 32, 16, 16, 2, 2, 2, 1, 16 };
+@@ -4297,14 +4294,11 @@
+             l_warptile_mmq = l_warptile_mmq_int = { 256, 128, 128, 32, subgroup_size_8, 64, 2, tm_m, tn_m, tk_m, subgroup_size_8 };
+             l_warptile_mmq_int_k = { 256, 128, 128, 32, subgroup_size_16, 64, 1, 4, 2, 1, subgroup_size_16 };
+ 
+-            // saker: dGPU values above under-use a 40-CU APU. ONLY BN (128->256) changes here.
+-            // BLOCK_SIZE and BM must NOT be touched: BS=128 and BM=256 both pass llama-bench
+-            // throughput (490-775 t/s, seductive) but BREAK GENERATION - llama-server fails with
+-            // "get_logits_ith: invalid logits id" and produces empty or wrong output. Only the
+-            // BN=256 variant was verified byte-identical to baseline (276 chars, md5 2fe11002).
+-            // l_warptile_mmq_int_k is left untouched.
++            // Grow BN and WN together so the warps cover the whole output tile.
++            // Integer K-quants keep their own tile geometry.
+             if (saker_apu_tune) {
+-                l_warptile_mmq = l_warptile_mmq_int = { 256, 128, 256, 32, subgroup_size_8, 64, 2, tm_m, tn_m, tk_m, subgroup_size_8 };
++                l_warptile_mmq = l_warptile_mmq_int = { 256, 128, 256, 32, subgroup_size_8, 128, 2, tm_m, tn_m, tk_m, subgroup_size_8 };
++                saker_apu_mmq_retuned = true;
+             }
+         } else if (device->vendor_id == VK_VENDOR_ID_INTEL && device->coopmat_support) {
+             // Xe2/Xe3 with coopmat enabled - warptile performance tuning
+@@ -4313,9 +4307,9 @@
+         }
+ 
+         l_mmq_wg_denoms = l_wg_denoms = {128, 128, 1 };
+-        // saker: APU retune of the large wg_denoms to match the BN=256 tile above.
+-        if (saker_apu_tune) {
+-            l_mmq_wg_denoms = l_wg_denoms = { 128, 256, 1 };
++        // Only the MMQ tile has BN=256; the floating-point tile keeps BN=128.
++        if (saker_apu_mmq_retuned) {
++            l_mmq_wg_denoms = { 128, 256, 1 };
+         }
+         m_mmq_wg_denoms = m_wg_denoms = { 64,  64, 1 };
+         s_mmq_wg_denoms = s_wg_denoms = { 32,  32, 1 };
+@@ -4342,7 +4336,7 @@
+     if (const char * sk = getenv("SAKER_LMMQ_WGD")) {
+         unsigned a,b,c;
+         if (sscanf(sk, "%u,%u,%u", &a,&b,&c) == 3) {
+-            l_mmq_wg_denoms = {a,b,c}; l_wg_denoms = {a,b,c};
++            l_mmq_wg_denoms = {a,b,c};
+             fprintf(stderr, "saker-pf: SAKER_LMMQ_WGD applied: %u,%u,%u\n", a,b,c);
+         } else { fprintf(stderr, "saker-pf: SAKER_LMMQ_WGD parse FAILED\n"); }
+     }
+@@ -4630,6 +4624,13 @@
+     auto const &ggml_vk_mul_mm_spec = [](std::vector<uint32_t> spec, bool aligned) {
+         spec.push_back(aligned ? 1u : 0u);
+         return spec;
++    };
++
++    // Integer-dot K-quant and indexed kernels can use different tile widths.
++    auto const &ggml_vk_mmq_grid = [](std::array<uint32_t, 3> grid, const std::vector<uint32_t>& tile) {
++        grid[0] = tile[1];
++        grid[1] = tile[2];
++        return grid;
+     };
+ 
+     const int mul_mat_id_param_count = 5;
+@@ -4897,13 +4898,13 @@
+ 
+ #define CREATE_MMQ(TYPE, PIPELINE_NAME, NAMELC, WG_DENOMS, WARPTILE, PUSHCONST, PARAMCOUNT, ID, REQSUBGROUPSIZE) \
+         if (device->mul_mat ## ID ## _l_int[TYPE]) { \
+-            ggml_vk_create_pipeline(device, device-> PIPELINE_NAME .f32acc->l, #NAMELC        "_l", NAMELC ## _len,        NAMELC ##  _data,        "main", PARAMCOUNT, sizeof(PUSHCONST), l_ ## WG_DENOMS, l_ ## WARPTILE, 1, false, REQSUBGROUPSIZE > 0, REQSUBGROUPSIZE);   \
++            ggml_vk_create_pipeline(device, device-> PIPELINE_NAME .f32acc->l, #NAMELC        "_l", NAMELC ## _len,        NAMELC ##  _data,        "main", PARAMCOUNT, sizeof(PUSHCONST), ggml_vk_mmq_grid(l_ ## WG_DENOMS, l_ ## WARPTILE), l_ ## WARPTILE, 1, false, REQSUBGROUPSIZE > 0, REQSUBGROUPSIZE);   \
+         } \
+         if (device->mul_mat ## ID ## _m_int[TYPE]) { \
+-            ggml_vk_create_pipeline(device, device-> PIPELINE_NAME .f32acc->m, #NAMELC        "_m", NAMELC ## _len,        NAMELC ##  _data,        "main", PARAMCOUNT, sizeof(PUSHCONST), m_ ## WG_DENOMS, m_ ## WARPTILE, 1, false, REQSUBGROUPSIZE > 0, REQSUBGROUPSIZE);   \
++            ggml_vk_create_pipeline(device, device-> PIPELINE_NAME .f32acc->m, #NAMELC        "_m", NAMELC ## _len,        NAMELC ##  _data,        "main", PARAMCOUNT, sizeof(PUSHCONST), ggml_vk_mmq_grid(m_ ## WG_DENOMS, m_ ## WARPTILE), m_ ## WARPTILE, 1, false, REQSUBGROUPSIZE > 0, REQSUBGROUPSIZE);   \
+         } \
+         if (device->mul_mat ## ID ## _s_int[TYPE]) { \
+-            ggml_vk_create_pipeline(device, device-> PIPELINE_NAME .f32acc->s, #NAMELC        "_s", NAMELC ## _len,        NAMELC ##  _data,        "main", PARAMCOUNT, sizeof(PUSHCONST), s_ ## WG_DENOMS, s_ ## WARPTILE, 1, false, REQSUBGROUPSIZE > 0, REQSUBGROUPSIZE);   \
++            ggml_vk_create_pipeline(device, device-> PIPELINE_NAME .f32acc->s, #NAMELC        "_s", NAMELC ## _len,        NAMELC ##  _data,        "main", PARAMCOUNT, sizeof(PUSHCONST), ggml_vk_mmq_grid(s_ ## WG_DENOMS, s_ ## WARPTILE), s_ ## WARPTILE, 1, false, REQSUBGROUPSIZE > 0, REQSUBGROUPSIZE);   \
+         } \
+ 
+         // Create 2 variants, {f16,f32} accumulator
+@@ -5081,11 +5082,11 @@
+ 
+ #define CREATE_MMQ(TYPE, PIPELINE_NAME, NAMELC, WG_DENOMS, WARPTILE, PUSHCONST, PARAMCOUNT, ID) \
+         if (device->mul_mat ## ID ## _l_int[TYPE]) \
+-            ggml_vk_create_pipeline(device, device-> PIPELINE_NAME ->l, #NAMELC "_l", NAMELC ## _fp32_len, NAMELC ## _fp32_data, "main", PARAMCOUNT, sizeof(PUSHCONST), l_ ## WG_DENOMS, l_ ## WARPTILE, 1);   \
++            ggml_vk_create_pipeline(device, device-> PIPELINE_NAME ->l, #NAMELC "_l", NAMELC ## _fp32_len, NAMELC ## _fp32_data, "main", PARAMCOUNT, sizeof(PUSHCONST), ggml_vk_mmq_grid(l_ ## WG_DENOMS, l_ ## WARPTILE), l_ ## WARPTILE, 1);   \
+         if (device->mul_mat ## ID ## _m_int[TYPE]) \
+-            ggml_vk_create_pipeline(device, device-> PIPELINE_NAME ->m, #NAMELC "_m", NAMELC ## _fp32_len, NAMELC ## _fp32_data, "main", PARAMCOUNT, sizeof(PUSHCONST), m_ ## WG_DENOMS, m_ ## WARPTILE, 1);   \
++            ggml_vk_create_pipeline(device, device-> PIPELINE_NAME ->m, #NAMELC "_m", NAMELC ## _fp32_len, NAMELC ## _fp32_data, "main", PARAMCOUNT, sizeof(PUSHCONST), ggml_vk_mmq_grid(m_ ## WG_DENOMS, m_ ## WARPTILE), m_ ## WARPTILE, 1);   \
+         if (device->mul_mat ## ID ## _s_int[TYPE]) \
+-            ggml_vk_create_pipeline(device, device-> PIPELINE_NAME ->s, #NAMELC "_s", NAMELC ## _fp32_len, NAMELC ## _fp32_data, "main", PARAMCOUNT, sizeof(PUSHCONST), s_ ## WG_DENOMS, s_ ## WARPTILE, 1);   \
++            ggml_vk_create_pipeline(device, device-> PIPELINE_NAME ->s, #NAMELC "_s", NAMELC ## _fp32_len, NAMELC ## _fp32_data, "main", PARAMCOUNT, sizeof(PUSHCONST), ggml_vk_mmq_grid(s_ ## WG_DENOMS, s_ ## WARPTILE), s_ ## WARPTILE, 1);   \
+ 
+         CREATE_MM(GGML_TYPE_F32, pipeline_matmul_f32, matmul_f32_f32, , wg_denoms, warptile, vk_mat_mat_push_constants, 3, , 0);
+         CREATE_MM(GGML_TYPE_F32, pipeline_matmul_f32_f16, matmul_f32_f16, , wg_denoms, warptile, vk_mat_mat_push_constants, 3, , 0);
+diff --git a/tests/test-backend-ops.cpp b/tests/test-backend-ops.cpp
+index 3349a64b1..99ad98f8f 100644
+--- a/tests/test-backend-ops.cpp
++++ b/tests/test-backend-ops.cpp
+@@ -9234,6 +9234,19 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
+ #endif
+ 
+     test_cases.emplace_back(new test_mul_mat(GGML_TYPE_F16, GGML_TYPE_F32,  64, 2,  128, { 8,  1}, {1, 1}));
++    // Exercise the large floating-point tile across its column boundaries.
++    for (int64_t columns : {69, 91, 129, 256, 512}) {
++        for (ggml_type activation : {GGML_TYPE_F16, GGML_TYPE_F32}) {
++            test_cases.emplace_back(new test_mul_mat(GGML_TYPE_F16, activation, 512, columns, 512, {1, 1}, {1, 1}));
++        }
++        for (ggml_type weight : {GGML_TYPE_Q4_0, GGML_TYPE_Q8_0,
++                                GGML_TYPE_Q2_K, GGML_TYPE_Q4_K, GGML_TYPE_Q6_K,
++                                GGML_TYPE_IQ1_M, GGML_TYPE_IQ2_XXS, GGML_TYPE_IQ2_XS,
++                                GGML_TYPE_IQ2_S, GGML_TYPE_IQ3_XXS, GGML_TYPE_IQ3_S,
++                                GGML_TYPE_IQ4_XS, GGML_TYPE_BF16, GGML_TYPE_F32}) {
++            test_cases.emplace_back(new test_mul_mat(weight, GGML_TYPE_F32, 512, columns, 512, {1, 1}, {1, 1}));
++        }
++    }
+     test_cases.emplace_back(new test_mul_mat(GGML_TYPE_F16, GGML_TYPE_F32,  83, 2,  128, { 8,  1}, {4, 1}));
+     test_cases.emplace_back(new test_mul_mat(GGML_TYPE_F16, GGML_TYPE_F32,  64, 2,   64, { 8,  1}, {4, 1}));
+     test_cases.emplace_back(new test_mul_mat(GGML_TYPE_F16, GGML_TYPE_F32,  83, 2,   64, { 8,  1}, {4, 1}));
+@@ -9952,6 +9965,17 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
+     }
+ 
+     test_cases.emplace_back(new test_gated_delta_net(GGML_TYPE_F32, 32, 128, 1, 1));
++    // Qwen3.8-27B: 16 Q/K heads, 48 value heads, head dimension 128.
++    // Cover AR, MTP rejection snapshots and the deployed 256-token prefill chunk.
++    for (int64_t tokens : {1, 2, 3, 4, 127, 256, 512}) {
++        test_cases.emplace_back(new test_gated_delta_net(GGML_TYPE_F32, 16, 128, tokens, 1, 3));
++        if (tokens >= 3) {
++            test_cases.emplace_back(new test_gated_delta_net(GGML_TYPE_F32, 16, 128, tokens, 1, 3, false, false, 3));
++        }
++    }
++    for (int64_t tokens : {3, 256}) {
++        test_cases.emplace_back(new test_gated_delta_net(GGML_TYPE_F32, 16, 128, tokens, 1, 3, true));
++    }
+     test_cases.emplace_back(new test_gated_delta_net(GGML_TYPE_F32, 32, 16, 1, 1));
+     test_cases.emplace_back(new test_gated_delta_net(GGML_TYPE_F32, 32, 16, 1, 1, 1, true, true));
+     test_cases.emplace_back(new test_gated_delta_net(GGML_TYPE_F32, 32, 16, 1, 1, 1, false, true));
+diff --git a/src/models/models.h b/src/models/models.h
+index cefaf56eb..cf2ac103b 100644
+--- a/src/models/models.h
++++ b/src/models/models.h
+@@ -7,6 +7,18 @@
+ // note: almost all graphs require at least sqrtf, so include cmath globally
+ #include <cmath>
+ 
++// Gated DeltaNet q/k normalization as defined by flash-linear-attention:
++//     l2norm(x) = x * rsqrt(sum(x*x) + eps)
++// with eps inside the root. ggml_l2_norm is x / max(sqrt(sum(x*x)), eps), i.e. no epsilon at
++// these magnitudes. rms_norm already carries eps inside the root, so
++// rms_norm(x, eps/n) * (1/sqrt(n)) is exactly x * rsqrt(sum(x*x) + eps).
++// ref: https://github.com/ggml-org/llama.cpp/pull/28068
++static inline ggml_tensor * build_gdn_l2_norm(ggml_context * ctx, ggml_tensor * x, float eps) {
++    const float n = x->ne[0];
++
++    return ggml_scale(ctx, ggml_rms_norm(ctx, x, eps/n), 1.0f/sqrtf(n));
++}
++
+ //
+ // base classes
+ //
+diff --git a/src/models/qwen35.cpp b/src/models/qwen35.cpp
+index 90dee4bd7..c690d4db2 100644
+--- a/src/models/qwen35.cpp
++++ b/src/models/qwen35.cpp
+@@ -429,8 +429,8 @@ ggml_tensor * llama_model_qwen35::graph::build_layer_attn_linear(
+ 
+     const float eps_norm = hparams.f_norm_rms_eps;
+ 
+-    q_conv = ggml_l2_norm(ctx0, q_conv, eps_norm);
+-    k_conv = ggml_l2_norm(ctx0, k_conv, eps_norm);
++    q_conv = build_gdn_l2_norm(ctx0, q_conv, eps_norm);
++    k_conv = build_gdn_l2_norm(ctx0, k_conv, eps_norm);
+ 
+     //q_conv = ggml_cont_4d(ctx0, q_conv, head_k_dim, num_k_heads, n_seq_tokens, n_seqs);
+     //k_conv = ggml_cont_4d(ctx0, k_conv, head_k_dim, num_k_heads, n_seq_tokens, n_seqs);

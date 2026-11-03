@@ -1,0 +1,75 @@
+Item 23 engine follow-up - node B - 2026-11-02
+
+The confirmed Vulkan arithmetic bug is fixed and the installed service is healthy.
+The remaining pelican generation-quality problem is NOT fixed. This follow-up
+found no additional engine defect that explains it, so it adds no speculative
+production patch. The previous correctness patch remains installed.
+
+Fresh end-to-end result
+The exact original user request, with generic file-write instructions and no
+pelican-specific corrections, completed through the installed service at ctx
+262144, medium effort and seed 42. It generated 5539 completion tokens in 190.84
+seconds total; measured decode was 29.33 tokens/s with full-vocabulary MTP2.
+The untouched HTML is byte-identical to the earlier medium run at ctx 32768.
+HTML SHA256: 07be2bdea466290c920a2311dbeca981fd6199e42952ca6055b37db64d21aef4
+
+The page renders without JavaScript errors, but quality checks FAIL:
+- Spokes extend 0.87 units from the hub of a wheel with radius 0.48.
+- Scenery moves perpendicular to the bicycle's forward direction.
+- Scenery travels 3.36 units at 60 fps versus 1.68 at 30 fps over the same duration.
+- Visual inspection still shows awkward bird proportions and disconnected-looking
+  neck segments. Successful parsing and rendering are not a quality pass.
+The generated HTML and the original failed page were not edited.
+
+Engine state investigation
+The upstream recurrent rollback test initially failed a strict absolute 1e-5
+logit threshold. A diagnostic measured full probability distributions instead
+of stopping at its first small Vulkan rounding difference. Its later dirty-restore
+comparison also used a reference overwritten by a separate replay that rolled
+back across multiple one-token decodes, outside the snapshots from the last decode.
+Keeping the original reference makes full restore into both fresh and dirty
+contexts exact on CPU. Vulkan dirty-restore KL stays below 0.00005 in those three
+positions. Clearing the dirty context does not change this conclusion.
+
+A separate forced-token test used the original pelican code, a 4096-token prefix
+and 192 scored positions. It exercised ordinary single-token decoding, batches of
+three, the native MTP target state with two rollback slots, and deliberately wrong
+drafts with alternating acceptance/rejection. All 192 top tokens agreed in every
+comparison. Mixed rejection versus ordinary decoding had mean KL 0.000006839.
+This rules out a large state-corruption error in these tested paths; it does not
+prove all possible contexts or guarantee semantic code quality.
+
+Three fixed input probes at the deployed ctx 262144 matched the top token and the
+top-eight token IDs from ctx 16384. Their log probabilities were not all identical
+(maximum top-eight delta 0.14933 on the 5367-token prompt). Separately, the complete
+webpage was byte-identical across ctx 32768 and 262144 for the fixed seed.
+
+Speed tuning
+Three repetitions each of 2048-token prompt processing, zero generated tokens:
+  corrected retune, ub256:  293.12 +/- 2.24 tokens/s
+  corrected retune, ub512:  268.30 +/- 0.93 tokens/s
+  corrected retune, ub1024: 237.48 +/- 5.88 tokens/s
+  corrected retune, ub128:  186.90 +/- 8.25 tokens/s
+  standard kernels, ub256: 263.16 +/- 5.51 tokens/s
+  standard kernels, ub128: 230.18 +/- 2.28 tokens/s
+These were sequential local runs, not a randomized performance study. No tested
+alternative beat the current setting, so ub256 and full-head MTP2 remain selected.
+There is no new speedup claim from this follow-up.
+
+The earlier independent CPU-reference audit still establishes the real kernel
+repair: mean KL fell from 6.271537 to 0.002961 on 1279 scored positions. Earlier
+short-prompt MTP2 measurements were about 26-28 tokens/s versus 15 for ordinary
+decoding. Those measurements are in q38gsq-engine-diagnosis.md and its JSON.
+
+Deployment and limits
+Item 23 is running on node B at port 18151. Its installed runtime files match the
+audited build. The original pelican file hash remains:
+7cb912dead4b640bc4554b9384659d858552de92a6b2d8efb8b1bddb4d5b7733
+No weights, generated test pages or other fleet entries were changed in this
+follow-up. No commit or push was made. Quantization/model capability versus another
+unisolated cause remains unresolved; matching the quantized model's CPU inference
+does not establish equivalence to unquantized weights.
+
+q38gsq-followup.json contains measurements. q38gsq-followup-evidence.zip contains
+the diagnostic sources, logs, benchmark results, untouched generation and browser
+QA. The earlier q38gsq-engine-fix.patch is still the engine correctness repair.

@@ -1,0 +1,11 @@
+{
+  "vocab_sha256": "5ee0f927bcaa4b9fe85c244776ae9487468e427f83e053fc81f2a186f14936a3",
+  "model": "Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf",
+  "model_sha256": "58fd826723939933dc86f45b7fe04545cbc2de1c70f6fe2cdd3858c87a98c12f",
+  "engine": "unpatched",
+  "mode": "decode",
+  "chunk_size": 256,
+  "provenance_caution": "IQ3 and official checkpoint weight identity is not established",
+  "position_convention": "zero-based consumed token index; predicts next token",
+  "vocab_size": 248320
+}

@@ -1,0 +1,16 @@
+[
+  "python3",
+  "/home/hycris/item23-independent-reference-20261102/llama/package_logits.py",
+  "--tokens",
+  "/home/hycris/item23-independent-reference-20261102/results-long-20261102/request-tokens.txt",
+  "--positions",
+  "/home/hycris/item23-independent-reference-20261102/results-long-20261102/request-positions.txt",
+  "--raw",
+  "/home/hycris/item23-independent-reference-20261102/results-long-20261102/request-patched-cached.f32",
+  "--vocab",
+  "248320",
+  "--output",
+  "/home/hycris/item23-independent-reference-20261102/results-long-20261102/request-patched-cached.npz",
+  "--metadata",
+  "/home/hycris/item23-independent-reference-20261102/results-long-20261102/request-patched-cached-metadata.json"
+]

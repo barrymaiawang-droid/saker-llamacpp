@@ -1,0 +1,12 @@
+[
+  {
+    "fixture": "/home/hycris/item23-independent-reference-20261102/cases/frozen/short_prefill_cached.json",
+    "out": "/home/hycris/item23-independent-reference-20261102/results-short-final-20261102/hf-prefill.npz",
+    "mode": "prefill"
+  },
+  {
+    "fixture": "/home/hycris/item23-independent-reference-20261102/cases/frozen/short_prefill_cached.json",
+    "out": "/home/hycris/item23-independent-reference-20261102/results-short-final-20261102/hf-cached.npz",
+    "mode": "cached"
+  }
+]

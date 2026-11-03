@@ -1,0 +1,84 @@
+{
+  "scope": "combined synthetic AR prompt and generation; not MTP",
+  "rows": [
+    {
+      "file": "results/01-patched.json",
+      "variant": "patched",
+      "rate": 149.703,
+      "duration_ns": 14535429910,
+      "prompt": 2048,
+      "gen": 128,
+      "gpu_layers": 99,
+      "batch": 2048,
+      "ubatch": 256,
+      "threads": 4,
+      "flash_attn": 1
+    },
+    {
+      "file": "results/02-upstream.json",
+      "variant": "upstream",
+      "rate": 159.344,
+      "duration_ns": 13655954064,
+      "prompt": 2048,
+      "gen": 128,
+      "gpu_layers": 99,
+      "batch": 2048,
+      "ubatch": 256,
+      "threads": 4,
+      "flash_attn": 1
+    },
+    {
+      "file": "results/03-upstream.json",
+      "variant": "upstream",
+      "rate": 158.563,
+      "duration_ns": 13723238932,
+      "prompt": 2048,
+      "gen": 128,
+      "gpu_layers": 99,
+      "batch": 2048,
+      "ubatch": 256,
+      "threads": 4,
+      "flash_attn": 1
+    },
+    {
+      "file": "results/04-patched.json",
+      "variant": "patched",
+      "rate": 148.291,
+      "duration_ns": 14673880053,
+      "prompt": 2048,
+      "gen": 128,
+      "gpu_layers": 99,
+      "batch": 2048,
+      "ubatch": 256,
+      "threads": 4,
+      "flash_attn": 1
+    },
+    {
+      "file": "results/05-patched.json",
+      "variant": "patched",
+      "rate": 146.85,
+      "duration_ns": 14817816046,
+      "prompt": 2048,
+      "gen": 128,
+      "gpu_layers": 99,
+      "batch": 2048,
+      "ubatch": 256,
+      "threads": 4,
+      "flash_attn": 1
+    },
+    {
+      "file": "results/06-upstream.json",
+      "variant": "upstream",
+      "rate": 158.82,
+      "duration_ns": 13701088082,
+      "prompt": 2048,
+      "gen": 128,
+      "gpu_layers": 99,
+      "batch": 2048,
+      "ubatch": 256,
+      "threads": 4,
+      "flash_attn": 1
+    }
+  ],
+  "delta_percent": 7.167231658738804
+}

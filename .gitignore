@@ -1,1 +1,3 @@
 *.orig-saker
+__pycache__/
+*.py[cod]

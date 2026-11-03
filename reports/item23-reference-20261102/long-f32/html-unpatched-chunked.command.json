@@ -1,0 +1,11 @@
+[
+  "/home/hycris/item23-independent-reference-20261102/llama/export-unpatched",
+  "/home/hycris/item23-independent-reference-20261102/model-f32.gguf",
+  "/home/hycris/item23-independent-reference-20261102/results-long-20261102/html-tokens.txt",
+  "/home/hycris/item23-independent-reference-20261102/results-long-20261102/html-positions.txt",
+  "prefill",
+  "0",
+  "16",
+  "/home/hycris/item23-independent-reference-20261102/results-long-20261102/html-unpatched-chunked.f32",
+  "256"
+]

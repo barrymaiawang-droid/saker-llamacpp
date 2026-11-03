@@ -1,0 +1,62 @@
+[
+  {
+    "name": "contiguous",
+    "length": 140,
+    "sha256": "471d327907fc83cb6703d3424393e5caeefd627fa86d8b1b2f07d3045b6e1433",
+    "ok": true
+  },
+  {
+    "name": "transposed",
+    "length": 140,
+    "sha256": "ab5fa343d5cb64d36373f8b9c93c014d76383f2ca8840c491e2a3f58fc58abe5",
+    "ok": true
+  },
+  {
+    "name": "reversed",
+    "length": 140,
+    "sha256": "a9d1a1e8a7273504a6391b1627edf5355a26294be4e939674697fbf16d9032c8",
+    "ok": true
+  },
+  {
+    "name": "fortran",
+    "length": 140,
+    "sha256": "471d327907fc83cb6703d3424393e5caeefd627fa86d8b1b2f07d3045b6e1433",
+    "ok": true
+  },
+  {
+    "name": "big-endian",
+    "length": 140,
+    "sha256": "9a6931ea0a7d617b19fa0cf3a12dacc384c58e82e1e00cf4918c2d634409ed65",
+    "ok": true
+  },
+  {
+    "name": "empty",
+    "length": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "ok": true
+  },
+  {
+    "name": "scalar",
+    "length": 4,
+    "sha256": "ce8a3518504b3c99f1bb9ed5b692a236ab44939b18de25c6c459d521eaf77eda",
+    "ok": true
+  },
+  {
+    "name": "lazy-reversed",
+    "length": 140,
+    "sha256": "a9d1a1e8a7273504a6391b1627edf5355a26294be4e939674697fbf16d9032c8",
+    "ok": true
+  },
+  {
+    "name": "partial-writes",
+    "length": 140,
+    "sha256": "471d327907fc83cb6703d3424393e5caeefd627fa86d8b1b2f07d3045b6e1433",
+    "ok": true
+  },
+  {
+    "name": "multi-chunk",
+    "length": 20000000,
+    "sha256": "7dfc7f2dcf8b0b13242d24c70c9f95560222f40d39a137647fc4ca4fcf617c56",
+    "ok": true
+  }
+]

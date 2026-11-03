@@ -1,0 +1,46 @@
+{
+  "reference": "/home/hycris/item23-independent-reference-20261102/results-short-final-20261102/hf-prefill.npz",
+  "candidate": "/home/hycris/item23-independent-reference-20261102/results-short-final-20261102/patched-prefill.npz",
+  "vocab_sha256": "5ee0f927bcaa4b9fe85c244776ae9487468e427f83e053fc81f2a186f14936a3",
+  "token_ids_sha256_le_i64": "37f17136949942700af6df6dab88e9eccad4c02f6237dc46e34c636a755e048d",
+  "vocab_size": 248320,
+  "row_count": 2,
+  "mean_kl_ref_to_candidate": 4.234995874751061e-12,
+  "median_kl": 4.234995874751061e-12,
+  "p95_kl": 5.248205591248523e-12,
+  "p99_kl": 5.338268677159408e-12,
+  "max_kl": 5.36078444863713e-12,
+  "top1_agreement": 1.0,
+  "max_abs_logit_delta": 2.1457672119140625e-05,
+  "max_abs_centered_logit_delta": 2.1480842368658057e-05,
+  "rows": [
+    {
+      "position": 0,
+      "next_token_id": 6511,
+      "kl_ref_to_candidate": 3.1092073008649925e-12,
+      "reference_top_id": 2614,
+      "candidate_top_id": 2614,
+      "top1_agrees": true,
+      "top10_intersection": 10,
+      "max_abs_logit_delta": 2.1457672119140625e-05,
+      "mean_offset": -2.3170249517430965e-08,
+      "max_abs_centered_logit_delta": 2.1480842368658057e-05,
+      "reference_top_probability": 0.03772291104832985,
+      "reference_top_probability_candidate": 0.03772286680035324
+    },
+    {
+      "position": 4,
+      "next_token_id": null,
+      "kl_ref_to_candidate": 5.36078444863713e-12,
+      "reference_top_id": 11751,
+      "candidate_top_id": 11751,
+      "top1_agrees": true,
+      "top10_intersection": 10,
+      "max_abs_logit_delta": 1.71661376953125e-05,
+      "mean_offset": -1.515164316065379e-06,
+      "max_abs_centered_logit_delta": 1.6773953378565377e-05,
+      "reference_top_probability": 0.6293987531157357,
+      "reference_top_probability_candidate": 0.6293998353714931
+    }
+  ]
+}

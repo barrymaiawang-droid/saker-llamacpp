@@ -1,0 +1,274 @@
+{
+  "checks": [
+    {
+      "source": "model.language_model.embed_tokens.weight",
+      "target": "token_embd.weight",
+      "source_exists": true,
+      "target_exists": true,
+      "source_shape": [
+        248320,
+        5120
+      ],
+      "transformed_expected_shape": [
+        248320,
+        5120
+      ],
+      "target_shape": [
+        248320,
+        5120
+      ],
+      "shape_matches": true
+    },
+    {
+      "source": "lm_head.weight",
+      "target": "output.weight",
+      "source_exists": true,
+      "target_exists": true,
+      "source_shape": [
+        248320,
+        5120
+      ],
+      "transformed_expected_shape": [
+        248320,
+        5120
+      ],
+      "target_shape": [
+        248320,
+        5120
+      ],
+      "shape_matches": true
+    },
+    {
+      "source": "model.language_model.layers.0.input_layernorm.weight",
+      "target": "blk.0.attn_norm.weight",
+      "source_exists": true,
+      "target_exists": true,
+      "source_shape": [
+        5120
+      ],
+      "transformed_expected_shape": [
+        5120
+      ],
+      "target_shape": [
+        5120
+      ],
+      "shape_matches": true
+    },
+    {
+      "source": "model.language_model.layers.0.post_attention_layernorm.weight",
+      "target": "blk.0.post_attention_norm.weight",
+      "source_exists": true,
+      "target_exists": true,
+      "source_shape": [
+        5120
+      ],
+      "transformed_expected_shape": [
+        5120
+      ],
+      "target_shape": [
+        5120
+      ],
+      "shape_matches": true
+    },
+    {
+      "source": "model.language_model.norm.weight",
+      "target": "output_norm.weight",
+      "source_exists": true,
+      "target_exists": true,
+      "source_shape": [
+        5120
+      ],
+      "transformed_expected_shape": [
+        5120
+      ],
+      "target_shape": [
+        5120
+      ],
+      "shape_matches": true
+    },
+    {
+      "source": "model.language_model.layers.0.linear_attn.norm.weight",
+      "target": "blk.0.ssm_norm.weight",
+      "source_exists": true,
+      "target_exists": true,
+      "source_shape": [
+        128
+      ],
+      "transformed_expected_shape": [
+        128
+      ],
+      "target_shape": [
+        128
+      ],
+      "shape_matches": true
+    },
+    {
+      "source": "model.language_model.layers.3.self_attn.q_proj.weight",
+      "target": "blk.3.attn_q.weight",
+      "source_exists": true,
+      "target_exists": true,
+      "source_shape": [
+        12288,
+        5120
+      ],
+      "transformed_expected_shape": [
+        12288,
+        5120
+      ],
+      "target_shape": [
+        12288,
+        5120
+      ],
+      "shape_matches": true
+    },
+    {
+      "source": "model.language_model.layers.3.self_attn.k_proj.weight",
+      "target": "blk.3.attn_k.weight",
+      "source_exists": true,
+      "target_exists": true,
+      "source_shape": [
+        1024,
+        5120
+      ],
+      "transformed_expected_shape": [
+        1024,
+        5120
+      ],
+      "target_shape": [
+        1024,
+        5120
+      ],
+      "shape_matches": true
+    },
+    {
+      "source": "model.language_model.layers.0.linear_attn.in_proj_qkv.weight",
+      "target": "blk.0.attn_qkv.weight",
+      "source_exists": true,
+      "target_exists": true,
+      "source_shape": [
+        10240,
+        5120
+      ],
+      "transformed_expected_shape": [
+        10240,
+        5120
+      ],
+      "target_shape": [
+        10240,
+        5120
+      ],
+      "shape_matches": true
+    },
+    {
+      "source": "model.language_model.layers.0.linear_attn.conv1d.weight",
+      "target": "blk.0.ssm_conv1d.weight",
+      "source_exists": true,
+      "target_exists": true,
+      "source_shape": [
+        10240,
+        1,
+        4
+      ],
+      "transformed_expected_shape": [
+        10240,
+        4
+      ],
+      "target_shape": [
+        10240,
+        4
+      ],
+      "shape_matches": true
+    },
+    {
+      "source": "model.language_model.layers.0.linear_attn.in_proj_a.weight",
+      "target": "blk.0.ssm_alpha.weight",
+      "source_exists": true,
+      "target_exists": true,
+      "source_shape": [
+        48,
+        5120
+      ],
+      "transformed_expected_shape": [
+        48,
+        5120
+      ],
+      "target_shape": [
+        48,
+        5120
+      ],
+      "shape_matches": true
+    },
+    {
+      "source": "model.language_model.layers.0.linear_attn.in_proj_b.weight",
+      "target": "blk.0.ssm_beta.weight",
+      "source_exists": true,
+      "target_exists": true,
+      "source_shape": [
+        48,
+        5120
+      ],
+      "transformed_expected_shape": [
+        48,
+        5120
+      ],
+      "target_shape": [
+        48,
+        5120
+      ],
+      "shape_matches": true
+    },
+    {
+      "source": "model.language_model.layers.0.linear_attn.out_proj.weight",
+      "target": "blk.0.ssm_out.weight",
+      "source_exists": true,
+      "target_exists": true,
+      "source_shape": [
+        5120,
+        6144
+      ],
+      "transformed_expected_shape": [
+        5120,
+        6144
+      ],
+      "target_shape": [
+        5120,
+        6144
+      ],
+      "shape_matches": true
+    },
+    {
+      "source": "model.language_model.layers.0.linear_attn.dt_bias",
+      "target": "blk.0.ssm_dt.bias",
+      "source_exists": true,
+      "target_exists": true,
+      "source_shape": [
+        48
+      ],
+      "transformed_expected_shape": [
+        48
+      ],
+      "target_shape": [
+        48
+      ],
+      "shape_matches": true
+    },
+    {
+      "source": "model.language_model.layers.0.linear_attn.A_log",
+      "target": "blk.0.ssm_a",
+      "source_exists": true,
+      "target_exists": true,
+      "source_shape": [
+        48
+      ],
+      "transformed_expected_shape": [
+        48
+      ],
+      "target_shape": [
+        48
+      ],
+      "shape_matches": true
+    }
+  ],
+  "ok": true,
+  "note": "header-only shape check; conv transformation squeezes unit dims; permutations preserve shape"
+}

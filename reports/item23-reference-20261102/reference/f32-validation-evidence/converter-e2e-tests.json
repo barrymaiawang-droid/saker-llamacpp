@@ -1,0 +1,47 @@
+{
+  "pairs": [
+    {
+      "endian": "little",
+      "mode": "no",
+      "original_sha256": "4c5b387ccb9968f2ffa756b2dbe7b9f075f493334141c71cfba6ac3b453a4920",
+      "overlay_sha256": "4c5b387ccb9968f2ffa756b2dbe7b9f075f493334141c71cfba6ac3b453a4920",
+      "equal": true
+    },
+    {
+      "endian": "little",
+      "mode": "yes",
+      "original_sha256": "4c5b387ccb9968f2ffa756b2dbe7b9f075f493334141c71cfba6ac3b453a4920",
+      "overlay_sha256": "4c5b387ccb9968f2ffa756b2dbe7b9f075f493334141c71cfba6ac3b453a4920",
+      "equal": true
+    },
+    {
+      "endian": "little",
+      "mode": "stream",
+      "original_sha256": "7d724a7f25a22bef4e81cd547834ae819bca8b822106953ca1eeb33545a4e37e",
+      "overlay_sha256": "7d724a7f25a22bef4e81cd547834ae819bca8b822106953ca1eeb33545a4e37e",
+      "equal": true
+    },
+    {
+      "endian": "big",
+      "mode": "no",
+      "original_sha256": "5364869cabe7d90ecb334eb0f669e224ea49f3017d2687164b9c642dc3d112b8",
+      "overlay_sha256": "5364869cabe7d90ecb334eb0f669e224ea49f3017d2687164b9c642dc3d112b8",
+      "equal": true
+    },
+    {
+      "endian": "big",
+      "mode": "yes",
+      "original_sha256": "5364869cabe7d90ecb334eb0f669e224ea49f3017d2687164b9c642dc3d112b8",
+      "overlay_sha256": "5364869cabe7d90ecb334eb0f669e224ea49f3017d2687164b9c642dc3d112b8",
+      "equal": true
+    },
+    {
+      "endian": "big",
+      "mode": "stream",
+      "original_sha256": "787df7f52693fdc863d2f655d95ed5b5a157d2ba8f4b8a15e77b27fda3bd77ab",
+      "overlay_sha256": "787df7f52693fdc863d2f655d95ed5b5a157d2ba8f4b8a15e77b27fda3bd77ab",
+      "equal": true
+    }
+  ],
+  "ok": true
+}

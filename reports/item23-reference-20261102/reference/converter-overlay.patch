@@ -1,0 +1,62 @@
+--- /home/hycris/item23-independent-reference-20261102/llama/source-unpatched/gguf-py/gguf/gguf_writer.py	2026-08-15 08:25:26.000000000 +1000
++++ /home/hycris/item23-independent-reference-20261102/converter-overlay/gguf/gguf_writer.py	2026-11-02 17:55:50.687325511 +1100
+@@ -16,6 +16,8 @@
+ 
+ import numpy as np
+ 
++from .lazy import LazyNumpyTensor
++
+ from .constants import (
+     GGUF_DEFAULT_ALIGNMENT,
+     GGUF_MAGIC,
+@@ -35,6 +37,23 @@
+ logger = logging.getLogger(__name__)
+ 
+ 
++def _write_numpy_without_fallocate(array: Any, fout: IO[bytes]) -> None:
++    # Preserve ndarray.tofile C-order bytes, including lazy/noncontiguous
++    # tensors, without NumPy fallocate disabling Btrfs compression.
++    if isinstance(array, LazyNumpyTensor):
++        array = LazyNumpyTensor.to_eager(array)
++    data = np.ascontiguousarray(array)
++    view = memoryview(data).cast('B')
++    step = 16 * 1024 * 1024
++    for start in range(0, len(view), step):
++        chunk = view[start:start + step]
++        while len(chunk):
++            written = fout.write(chunk)
++            if written is None or written <= 0:
++                raise OSError('short or failed tensor write')
++            chunk = chunk[written:]
++
++
+ SHARD_NAME_FORMAT = "{:s}-{:05d}-of-{:05d}.gguf"
+ 
+ 
+@@ -399,7 +418,7 @@
+             self.tensors[-1][name].tensor = tensor
+             return
+ 
+-        tensor.tofile(self.temp_file)
++        _write_numpy_without_fallocate(tensor, self.temp_file)
+         self.write_padding(self.temp_file, tensor.nbytes)
+ 
+     def write_padding(self, fp: IO[bytes], n: int, align: int | None = None) -> None:
+@@ -434,7 +453,7 @@
+         assert ti.nbytes == tensor.nbytes
+ 
+         self.write_padding(fout, fout.tell())
+-        tensor.tofile(fout)
++        _write_numpy_without_fallocate(tensor, fout)
+         self.write_padding(fout, tensor.nbytes)
+ 
+         self.state = WriterState.WEIGHTS
+@@ -470,7 +489,7 @@
+                 for ti in tensors.values():
+                     assert ti.tensor is not None  # can only iterate once over the tensors
+                     assert ti.tensor.nbytes == ti.nbytes
+-                    ti.tensor.tofile(fout)
++                    _write_numpy_without_fallocate(ti.tensor, fout)
+                     if shard_bar is not None:
+                         shard_bar.update(ti.nbytes)
+                     if bar is not None:

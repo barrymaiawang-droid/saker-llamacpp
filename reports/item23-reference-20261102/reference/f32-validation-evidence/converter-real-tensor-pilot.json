@@ -1,0 +1,17 @@
+{
+  "tensor": "model.language_model.embed_tokens.weight",
+  "rows": [
+    0,
+    6553
+  ],
+  "dtype": "float32 from BF16 checkpoint values",
+  "bytes_each": 134205440,
+  "tofile_sha256": "c046ca1ec7419e9ed33e54ae17411d9f5a704f89b9c0a220790983e7e827d063",
+  "write_sha256": "c046ca1ec7419e9ed33e54ae17411d9f5a704f89b9c0a220790983e7e827d063",
+  "before_free": 97111633920,
+  "after_tofile_free": 96977428480,
+  "after_write_free": 96913895424,
+  "tofile_free_delta": 134205440,
+  "write_free_delta": 63533056,
+  "byte_equal": true
+}

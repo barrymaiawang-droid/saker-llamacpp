@@ -1,0 +1,9 @@
+{
+  "removed_prefixes": [
+    "SAKER_",
+    "GGML_",
+    "LLAMA_ARG_"
+  ],
+  "HF_ENABLE_PARALLEL_LOADING": "false",
+  "ONEDNN_DEFAULT_FPMATH_MODE": "STRICT"
+}

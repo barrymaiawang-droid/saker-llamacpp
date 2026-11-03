@@ -1,0 +1,1028 @@
+{
+  "fixture_sha256": "e565f61aa1a367977ac2581184a853cdc77a974c90fb38baba9189ffac06eb73",
+  "arms": {
+    "vk-ar": {
+      "median_tokens_per_second": {
+        "geometry": 14.974979403507659,
+        "pelican": 14.97822555202722,
+        "prefill": 280.2456710969532
+      },
+      "distinct_output_hashes": {
+        "geometry": 2,
+        "pelican": 2,
+        "geometry-prefix": 2,
+        "pelican-prefix": 2,
+        "prefill": 1
+      },
+      "run_count": 14,
+      "runtime_hashes": {
+        "libggml-base.so.0.20.0": "04bb18b0248348e6638989023ed4cc3b1890ac8abeeb42b9fe7ea66e23d33cee",
+        "libggml-cpu.so.0.20.0": "7136e5755dead0ed42eb5db0d1e97ddcde6270478e0d143c51e912b990cb35f9",
+        "libggml-vulkan.so.0.20.0": "12a1186b800c2f54a56d3efba722f945a61ccf899424441c4e4530b7bba31028",
+        "libggml.so.0.20.0": "f45a5281c29415d97cecd823c48e69f8c27887c4367f85e9eef0b3c094d23c1c",
+        "libllama.so.0.1.0": "8fc7ce80aa43d4b3f6af3169cf9a66479a624ee484ea35ad5fa8b573210fabc1",
+        "libmtmd.so.0.1.0": "9e22df03febf4bfbbea5ee12a4ec65b27ed7d9a856c0f72acdc9a6756ffecaae",
+        "libllama-common.so.0.1.0": "c60c82521b75ca0159890799bec63af9d4da479d86175a051e99001951f07c48"
+      },
+      "command": [
+        "<TASK_ROOT>/work/llama.cpp/build/bin/llama-server",
+        "-m",
+        "<TASK_ROOT>/work/models/Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf",
+        "-ngl",
+        "99",
+        "-c",
+        "16384",
+        "-ub",
+        "256",
+        "-b",
+        "2048",
+        "-np",
+        "1",
+        "-fa",
+        "on",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "18153",
+        "--alias",
+        "q38gsq-review",
+        "--temp",
+        "1",
+        "--top-k",
+        "20",
+        "--top-p",
+        ".95",
+        "--min-p",
+        "0",
+        "--repeat-penalty",
+        "1",
+        "--no-webui",
+        "--cache-ram",
+        "2048",
+        "-t",
+        "4",
+        "-tb",
+        "4"
+      ],
+      "engine_env": {}
+    },
+    "vk-stock-ar": {
+      "median_tokens_per_second": {
+        "geometry": 15.029091350604086,
+        "pelican": 15.01004254578831,
+        "prefill": 287.6029636726705
+      },
+      "distinct_output_hashes": {
+        "geometry": 2,
+        "pelican": 2,
+        "geometry-prefix": 1,
+        "pelican-prefix": 2,
+        "prefill": 1
+      },
+      "run_count": 14,
+      "runtime_hashes": {
+        "libggml-base.so.0.20.0": "04bb18b0248348e6638989023ed4cc3b1890ac8abeeb42b9fe7ea66e23d33cee",
+        "libggml-cpu.so.0.20.0": "7136e5755dead0ed42eb5db0d1e97ddcde6270478e0d143c51e912b990cb35f9",
+        "libggml-vulkan.so.0.20.0": "12a1186b800c2f54a56d3efba722f945a61ccf899424441c4e4530b7bba31028",
+        "libggml.so.0.20.0": "f45a5281c29415d97cecd823c48e69f8c27887c4367f85e9eef0b3c094d23c1c",
+        "libllama.so.0.1.0": "8fc7ce80aa43d4b3f6af3169cf9a66479a624ee484ea35ad5fa8b573210fabc1",
+        "libmtmd.so.0.1.0": "9e22df03febf4bfbbea5ee12a4ec65b27ed7d9a856c0f72acdc9a6756ffecaae",
+        "libllama-common.so.0.1.0": "c60c82521b75ca0159890799bec63af9d4da479d86175a051e99001951f07c48"
+      },
+      "command": [
+        "<TASK_ROOT>/work/llama.cpp/build/bin/llama-server",
+        "-m",
+        "<TASK_ROOT>/work/models/Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf",
+        "-ngl",
+        "99",
+        "-c",
+        "16384",
+        "-ub",
+        "256",
+        "-b",
+        "2048",
+        "-np",
+        "1",
+        "-fa",
+        "on",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "18153",
+        "--alias",
+        "q38gsq-review",
+        "--temp",
+        "1",
+        "--top-k",
+        "20",
+        "--top-p",
+        ".95",
+        "--min-p",
+        "0",
+        "--repeat-penalty",
+        "1",
+        "--no-webui",
+        "--cache-ram",
+        "2048",
+        "-t",
+        "4",
+        "-tb",
+        "4"
+      ],
+      "engine_env": {
+        "SAKER_APU_MMQ": "0"
+      }
+    },
+    "hip-ar": {
+      "median_tokens_per_second": {
+        "geometry": 12.801953477297852,
+        "pelican": 12.750759498487529,
+        "prefill": 297.2922961901092
+      },
+      "distinct_output_hashes": {
+        "geometry": 1,
+        "pelican": 1,
+        "geometry-prefix": 1,
+        "pelican-prefix": 1,
+        "prefill": 1
+      },
+      "run_count": 14,
+      "runtime_hashes": {
+        "libggml-base.so.0.20.0": "bb2afca86a5e14f14750768b24533b83c06c8b8ac32f23a6f318c2e88a0382a6",
+        "libggml-cpu.so.0.20.0": "2dad84e5f06c5e7fa743a6d7c563554a13c4785e951c31fc3800c1ccc0d04e23",
+        "libmtmd.so.0.1.0": "00d305554109b506ed4e12b0e1b6793b0ae9fb2eaa1f9a56ecba0eb8991ff072",
+        "libggml-hip.so.0.20.0": "d077025e5b5d406c8595f8bf66eea41aea0de7f7ddb8a2557c5725891b62b7be",
+        "libggml.so.0.20.0": "9ca48ed2b00981ce8144a454b9ecd2c61d224c5ca708460651fb6938f85b6a37",
+        "libllama.so.0.1.0": "c8d70301ee3ba5e44628fb610e16e23947ac7116377beb06ee019ddcf27b1ddc",
+        "libllama-common.so.0.1.0": "00e1ebad33fbea65d934c5bcaefa31185572b6ef1e98ac98dc7878af8c9fe3eb"
+      },
+      "command": [
+        "<TASK_ROOT>/work/llama.cpp/build-hip/bin/llama-server",
+        "-m",
+        "<TASK_ROOT>/work/models/Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf",
+        "-ngl",
+        "99",
+        "-c",
+        "16384",
+        "-ub",
+        "256",
+        "-b",
+        "2048",
+        "-np",
+        "1",
+        "-fa",
+        "on",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "18153",
+        "--alias",
+        "q38gsq-review",
+        "--temp",
+        "1",
+        "--top-k",
+        "20",
+        "--top-p",
+        ".95",
+        "--min-p",
+        "0",
+        "--repeat-penalty",
+        "1",
+        "--no-webui",
+        "--cache-ram",
+        "2048",
+        "-t",
+        "4",
+        "-tb",
+        "4"
+      ],
+      "engine_env": {}
+    },
+    "vk-mtp": {
+      "median_tokens_per_second": {
+        "geometry": 26.20913902359194,
+        "pelican": 28.28354093897793,
+        "prefill": 276.8445842029759
+      },
+      "distinct_output_hashes": {
+        "geometry": 1,
+        "pelican": 1,
+        "geometry-prefix": 1,
+        "pelican-prefix": 1,
+        "prefill": 1
+      },
+      "run_count": 14,
+      "runtime_hashes": {
+        "libggml-base.so.0.20.0": "04bb18b0248348e6638989023ed4cc3b1890ac8abeeb42b9fe7ea66e23d33cee",
+        "libggml-cpu.so.0.20.0": "7136e5755dead0ed42eb5db0d1e97ddcde6270478e0d143c51e912b990cb35f9",
+        "libggml-vulkan.so.0.20.0": "12a1186b800c2f54a56d3efba722f945a61ccf899424441c4e4530b7bba31028",
+        "libggml.so.0.20.0": "f45a5281c29415d97cecd823c48e69f8c27887c4367f85e9eef0b3c094d23c1c",
+        "libllama.so.0.1.0": "8fc7ce80aa43d4b3f6af3169cf9a66479a624ee484ea35ad5fa8b573210fabc1",
+        "libmtmd.so.0.1.0": "9e22df03febf4bfbbea5ee12a4ec65b27ed7d9a856c0f72acdc9a6756ffecaae",
+        "libllama-common.so.0.1.0": "c60c82521b75ca0159890799bec63af9d4da479d86175a051e99001951f07c48"
+      },
+      "command": [
+        "<TASK_ROOT>/work/llama.cpp/build/bin/llama-server",
+        "-m",
+        "<TASK_ROOT>/work/models/Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf",
+        "-ngl",
+        "99",
+        "-c",
+        "16384",
+        "-ub",
+        "256",
+        "-b",
+        "2048",
+        "-np",
+        "1",
+        "-fa",
+        "on",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "18153",
+        "--alias",
+        "q38gsq-review",
+        "--temp",
+        "1",
+        "--top-k",
+        "20",
+        "--top-p",
+        ".95",
+        "--min-p",
+        "0",
+        "--repeat-penalty",
+        "1",
+        "--no-webui",
+        "--cache-ram",
+        "2048",
+        "-t",
+        "4",
+        "-tb",
+        "4",
+        "--spec-type",
+        "draft-mtp",
+        "--spec-draft-n-max",
+        "2"
+      ],
+      "engine_env": {}
+    }
+  },
+  "comparisons": {
+    "vk-ar__vk-stock-ar": [
+      {
+        "case": "geometry",
+        "rep": 0,
+        "tokens_equal": true,
+        "first_difference_or_length": 128
+      },
+      {
+        "case": "geometry",
+        "rep": 1,
+        "tokens_equal": true,
+        "first_difference_or_length": 128
+      },
+      {
+        "case": "geometry",
+        "rep": 2,
+        "tokens_equal": true,
+        "first_difference_or_length": 128
+      },
+      {
+        "case": "pelican",
+        "rep": 0,
+        "tokens_equal": true,
+        "first_difference_or_length": 128
+      },
+      {
+        "case": "pelican",
+        "rep": 1,
+        "tokens_equal": true,
+        "first_difference_or_length": 128
+      },
+      {
+        "case": "pelican",
+        "rep": 2,
+        "tokens_equal": true,
+        "first_difference_or_length": 128
+      }
+    ],
+    "vk-ar__hip-ar": [
+      {
+        "case": "geometry",
+        "rep": 0,
+        "tokens_equal": true,
+        "first_difference_or_length": 128
+      },
+      {
+        "case": "geometry",
+        "rep": 1,
+        "tokens_equal": false,
+        "first_difference_or_length": 99,
+        "first_disagreement_tokens": [
+          7772,
+          13
+        ],
+        "candidates_at_disagreement": {
+          "vk-ar": [
+            {
+              "id": 7772,
+              "token": " axis",
+              "bytes": [
+                32,
+                97,
+                120,
+                105,
+                115
+              ],
+              "logprob": -1.1389806270599365
+            },
+            {
+              "id": 13,
+              "token": ".",
+              "bytes": [
+                46
+              ],
+              "logprob": -1.1417328119277954
+            },
+            {
+              "id": 30,
+              "token": "?",
+              "bytes": [
+                63
+              ],
+              "logprob": -1.700742483139038
+            }
+          ],
+          "hip-ar": [
+            {
+              "id": 13,
+              "token": ".",
+              "bytes": [
+                46
+              ],
+              "logprob": -1.0878177881240845
+            },
+            {
+              "id": 7772,
+              "token": " axis",
+              "bytes": [
+                32,
+                97,
+                120,
+                105,
+                115
+              ],
+              "logprob": -1.1825519800186157
+            },
+            {
+              "id": 30,
+              "token": "?",
+              "bytes": [
+                63
+              ],
+              "logprob": -1.7207884788513184
+            }
+          ]
+        }
+      },
+      {
+        "case": "geometry",
+        "rep": 2,
+        "tokens_equal": false,
+        "first_difference_or_length": 99,
+        "first_disagreement_tokens": [
+          7772,
+          13
+        ],
+        "candidates_at_disagreement": {
+          "vk-ar": [
+            {
+              "id": 7772,
+              "token": " axis",
+              "bytes": [
+                32,
+                97,
+                120,
+                105,
+                115
+              ],
+              "logprob": -1.1221271753311157
+            },
+            {
+              "id": 13,
+              "token": ".",
+              "bytes": [
+                46
+              ],
+              "logprob": -1.144775152206421
+            },
+            {
+              "id": 30,
+              "token": "?",
+              "bytes": [
+                63
+              ],
+              "logprob": -1.708987832069397
+            }
+          ],
+          "hip-ar": [
+            {
+              "id": 13,
+              "token": ".",
+              "bytes": [
+                46
+              ],
+              "logprob": -1.0878177881240845
+            },
+            {
+              "id": 7772,
+              "token": " axis",
+              "bytes": [
+                32,
+                97,
+                120,
+                105,
+                115
+              ],
+              "logprob": -1.1825519800186157
+            },
+            {
+              "id": 30,
+              "token": "?",
+              "bytes": [
+                63
+              ],
+              "logprob": -1.7207884788513184
+            }
+          ]
+        }
+      },
+      {
+        "case": "pelican",
+        "rep": 0,
+        "tokens_equal": false,
+        "first_difference_or_length": 11,
+        "first_disagreement_tokens": [
+          328,
+          264
+        ],
+        "candidates_at_disagreement": {
+          "vk-ar": [
+            {
+              "id": 328,
+              "token": " \"",
+              "bytes": [
+                32,
+                34
+              ],
+              "logprob": -0.6530272364616394
+            },
+            {
+              "id": 264,
+              "token": " a",
+              "bytes": [
+                32,
+                97
+              ],
+              "logprob": -0.7408738732337952
+            },
+            {
+              "id": 449,
+              "token": " an",
+              "bytes": [
+                32,
+                97,
+                110
+              ],
+              "logprob": -6.5352654457092285
+            }
+          ],
+          "hip-ar": [
+            {
+              "id": 264,
+              "token": " a",
+              "bytes": [
+                32,
+                97
+              ],
+              "logprob": -0.6739711761474609
+            },
+            {
+              "id": 328,
+              "token": " \"",
+              "bytes": [
+                32,
+                34
+              ],
+              "logprob": -0.7187729477882385
+            },
+            {
+              "id": 449,
+              "token": " an",
+              "bytes": [
+                32,
+                97,
+                110
+              ],
+              "logprob": -6.485292434692383
+            }
+          ]
+        }
+      },
+      {
+        "case": "pelican",
+        "rep": 1,
+        "tokens_equal": false,
+        "first_difference_or_length": 11,
+        "first_disagreement_tokens": [
+          328,
+          264
+        ],
+        "candidates_at_disagreement": {
+          "vk-ar": [
+            {
+              "id": 328,
+              "token": " \"",
+              "bytes": [
+                32,
+                34
+              ],
+              "logprob": -0.66252201795578
+            },
+            {
+              "id": 264,
+              "token": " a",
+              "bytes": [
+                32,
+                97
+              ],
+              "logprob": -0.7305418848991394
+            },
+            {
+              "id": 449,
+              "token": " an",
+              "bytes": [
+                32,
+                97,
+                110
+              ],
+              "logprob": -6.583445072174072
+            }
+          ],
+          "hip-ar": [
+            {
+              "id": 264,
+              "token": " a",
+              "bytes": [
+                32,
+                97
+              ],
+              "logprob": -0.6739711761474609
+            },
+            {
+              "id": 328,
+              "token": " \"",
+              "bytes": [
+                32,
+                34
+              ],
+              "logprob": -0.7187729477882385
+            },
+            {
+              "id": 449,
+              "token": " an",
+              "bytes": [
+                32,
+                97,
+                110
+              ],
+              "logprob": -6.485292434692383
+            }
+          ]
+        }
+      },
+      {
+        "case": "pelican",
+        "rep": 2,
+        "tokens_equal": false,
+        "first_difference_or_length": 11,
+        "first_disagreement_tokens": [
+          328,
+          264
+        ],
+        "candidates_at_disagreement": {
+          "vk-ar": [
+            {
+              "id": 328,
+              "token": " \"",
+              "bytes": [
+                32,
+                34
+              ],
+              "logprob": -0.6641188263893127
+            },
+            {
+              "id": 264,
+              "token": " a",
+              "bytes": [
+                32,
+                97
+              ],
+              "logprob": -0.7288637757301331
+            },
+            {
+              "id": 449,
+              "token": " an",
+              "bytes": [
+                32,
+                97,
+                110
+              ],
+              "logprob": -6.546536445617676
+            }
+          ],
+          "hip-ar": [
+            {
+              "id": 264,
+              "token": " a",
+              "bytes": [
+                32,
+                97
+              ],
+              "logprob": -0.6739711761474609
+            },
+            {
+              "id": 328,
+              "token": " \"",
+              "bytes": [
+                32,
+                34
+              ],
+              "logprob": -0.7187729477882385
+            },
+            {
+              "id": 449,
+              "token": " an",
+              "bytes": [
+                32,
+                97,
+                110
+              ],
+              "logprob": -6.485292434692383
+            }
+          ]
+        }
+      }
+    ],
+    "vk-mtp__hip-ar": [
+      {
+        "case": "geometry",
+        "rep": 0,
+        "tokens_equal": true,
+        "first_difference_or_length": 128
+      },
+      {
+        "case": "geometry",
+        "rep": 1,
+        "tokens_equal": true,
+        "first_difference_or_length": 128
+      },
+      {
+        "case": "geometry",
+        "rep": 2,
+        "tokens_equal": true,
+        "first_difference_or_length": 128
+      },
+      {
+        "case": "pelican",
+        "rep": 0,
+        "tokens_equal": true,
+        "first_difference_or_length": 128
+      },
+      {
+        "case": "pelican",
+        "rep": 1,
+        "tokens_equal": true,
+        "first_difference_or_length": 128
+      },
+      {
+        "case": "pelican",
+        "rep": 2,
+        "tokens_equal": true,
+        "first_difference_or_length": 128
+      }
+    ]
+  },
+  "limits": [
+    "Short generation tests cover only 128 tokens and do not assess completed visual quality.",
+    "Greedy output equality is not guaranteed across different floating-point kernels.",
+    "Log-probabilities for speculative tokens are omitted by this server version; do not align its sparse probability records to every output token.",
+    "Speeds are observed 128-token runs with returned probabilities, not a maximum throughput claim."
+  ],
+  "cpu_reference": {
+    "source": "<TASK_ROOT>/work/engine-audit-20261102/fidelity/cpu-reference.kld",
+    "source_log": "<TASK_ROOT>/work/engine-audit-20261102/fidelity/cpu-reference/run.log",
+    "source_blocks_requested": 2,
+    "complete_blocks_retained": 1,
+    "context_tokens": 2560,
+    "scored_positions": 1279,
+    "vocabulary": 248320,
+    "reference_bytes": 635223052,
+    "sha256": "f80864ee9b059a824a4b9e2f61ebd9466094de92c8e5ce012dca4fbe2f9c0873",
+    "method": "Copied complete first block and its exact input tokens; changed header block count from 2 to 1. No probabilities or tokens changed.",
+    "cpu_only_flags": [
+      "--device none",
+      "-ngl 0",
+      "--no-op-offload",
+      "--no-kv-offload"
+    ]
+  },
+  "fidelity_against_cpu": {
+    "vk-fixed": {
+      "elapsed_seconds": 11.084710021999854,
+      "mean_kld": 0.002961,
+      "max_kld": 0.142817,
+      "same_top_percent": 98.436,
+      "ppl_ratio": 0.998196
+    },
+    "vk-stock": {
+      "elapsed_seconds": 10.934739131999777,
+      "mean_kld": 0.002832,
+      "max_kld": 0.148477,
+      "same_top_percent": 98.593,
+      "ppl_ratio": 0.998752
+    },
+    "vk-before": {
+      "elapsed_seconds": 9.280311507000079,
+      "mean_kld": 6.271537,
+      "max_kld": 12.421866,
+      "same_top_percent": 42.377,
+      "ppl_ratio": 505.582781
+    },
+    "hip-control": {
+      "elapsed_seconds": 11.186509193999882,
+      "mean_kld": 0.432554,
+      "max_kld": 10.940132,
+      "same_top_percent": 81.392,
+      "ppl_ratio": 1.473591
+    },
+    "vk-f32": {
+      "elapsed_seconds": 12.489337026000612,
+      "mean_kld": 0.001687,
+      "max_kld": 0.17065,
+      "same_top_percent": 99.062,
+      "ppl_ratio": 0.995259
+    }
+  },
+  "causality": {
+    "causal-vk": [
+      {
+        "comparison": "repeat",
+        "rows": 128,
+        "top_changes": 0,
+        "max_abs_logit_delta": 0,
+        "mean_kl": 0,
+        "max_kl": 0
+      },
+      {
+        "comparison": "changed_future",
+        "rows": 128,
+        "top_changes": 0,
+        "max_abs_logit_delta": 0,
+        "mean_kl": 0,
+        "max_kl": 0
+      },
+      {
+        "comparison": "prefix_only",
+        "rows": 128,
+        "top_changes": 2,
+        "max_abs_logit_delta": 2.88842773,
+        "mean_kl": 0.000625982289,
+        "max_kl": 0.00812129369
+      }
+    ],
+    "causal-hip": [
+      {
+        "comparison": "repeat",
+        "rows": 128,
+        "top_changes": 0,
+        "max_abs_logit_delta": 0,
+        "mean_kl": 0,
+        "max_kl": 0
+      },
+      {
+        "comparison": "changed_future",
+        "rows": 128,
+        "top_changes": 0,
+        "max_abs_logit_delta": 0,
+        "mean_kl": 0,
+        "max_kl": 0
+      },
+      {
+        "comparison": "prefix_only",
+        "rows": 128,
+        "top_changes": 1,
+        "max_abs_logit_delta": 10.7198153,
+        "mean_kl": 0.000390936544,
+        "max_kl": 0.0185361893
+      }
+    ],
+    "causal-long-vk": [
+      {
+        "comparison": "repeat",
+        "rows": 128,
+        "top_changes": 0,
+        "max_abs_logit_delta": 0,
+        "mean_kl": 0,
+        "max_kl": 0
+      },
+      {
+        "comparison": "changed_future",
+        "rows": 128,
+        "top_changes": 0,
+        "max_abs_logit_delta": 0,
+        "mean_kl": 0,
+        "max_kl": 0
+      },
+      {
+        "comparison": "prefix_only",
+        "rows": 128,
+        "top_changes": 0,
+        "max_abs_logit_delta": 0.775390625,
+        "mean_kl": 0.000320366897,
+        "max_kl": 0.0107366381
+      }
+    ],
+    "causal-long-hip": [
+      {
+        "comparison": "repeat",
+        "rows": 128,
+        "top_changes": 1,
+        "max_abs_logit_delta": 10.8214179,
+        "mean_kl": 0.0113403139,
+        "max_kl": 0.139891237
+      },
+      {
+        "comparison": "changed_future",
+        "rows": 128,
+        "top_changes": 1,
+        "max_abs_logit_delta": 10.8214179,
+        "mean_kl": 0.0113403139,
+        "max_kl": 0.139891237
+      },
+      {
+        "comparison": "prefix_only",
+        "rows": 128,
+        "top_changes": 4,
+        "max_abs_logit_delta": 10.4555645,
+        "mean_kl": 0.0963026018,
+        "max_kl": 6.58554316
+      }
+    ]
+  },
+  "installed_verification": {
+    "installed_library_matches": {
+      "libggml-base.so.0.20.0": true,
+      "libggml-cpu.so.0.20.0": true,
+      "libggml-vulkan.so.0.20.0": true,
+      "libggml.so.0.20.0": true,
+      "libllama.so.0.1.0": true,
+      "libmtmd.so.0.1.0": true,
+      "libllama-common.so.0.1.0": true
+    },
+    "original_pelican_sha256": "7cb912dead4b640bc4554b9384659d858552de92a6b2d8efb8b1bddb4d5b7733"
+  },
+  "scope": {
+    "engine_code_changed_during_followup": false,
+    "prior_engine_patch_validated": true,
+    "test_html_modified_during_followup": false,
+    "remaining_visual_quality_guaranteed": false,
+    "hip_used_as_final_reference": false
+  },
+  "excluded_controls": {
+    "cpu-control": "GPU operations were still permitted; this is not an independent CPU baseline.",
+    "layers-vk": "Launched before instrumented binary compilation finished; no tensor dump was made. Use layers-vk2.",
+    "cpu-reference": "Two-block process intentionally stopped after one complete block. Only the validated extracted first block is used."
+  },
+  "retracted_claim": "The earlier 6144-token max_tokens cap diagnosis mixed a newer interrupted stream with an older response file; it is not an engine bug.",
+  "installed_smoke": {
+    "health": {
+      "status": "ok"
+    },
+    "models": {
+      "models": [
+        {
+          "name": "qwen3.8-27b-gsq-rco-iq3s-mtp",
+          "model": "qwen3.8-27b-gsq-rco-iq3s-mtp",
+          "modified_at": "",
+          "size": "",
+          "digest": "",
+          "type": "model",
+          "description": "",
+          "tags": [
+            ""
+          ],
+          "capabilities": [
+            "completion"
+          ],
+          "parameters": "",
+          "details": {
+            "parent_model": "",
+            "format": "gguf",
+            "family": "",
+            "families": [
+              ""
+            ],
+            "parameter_size": "",
+            "quantization_level": ""
+          }
+        }
+      ],
+      "object": "list",
+      "data": [
+        {
+          "id": "qwen3.8-27b-gsq-rco-iq3s-mtp",
+          "aliases": [
+            "qwen3.8-27b-gsq-rco-iq3s-mtp"
+          ],
+          "tags": [],
+          "object": "model",
+          "created": 1793583994,
+          "owned_by": "llamacpp",
+          "meta": {
+            "vocab_type": 2,
+            "n_vocab": 248320,
+            "n_ctx": 262144,
+            "n_ctx_train": 262144,
+            "n_embd": 5120,
+            "n_params": 27320697856,
+            "size": 12109021184,
+            "ftype": "IQ3_S - 3.4375 bpw"
+          }
+        }
+      ]
+    },
+    "smoke_request": {
+      "model": "qwen3.8-27b-gsq-rco-iq3s-mtp",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Return exactly this string, without punctuation or extra text: NODE_B_READY"
+        }
+      ],
+      "temperature": 0,
+      "max_tokens": 16,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "smoke_response": {
+      "choices": [
+        {
+          "finish_reason": "stop",
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "NODE_B_READY"
+          }
+        }
+      ],
+      "created": 1793583995,
+      "model": "qwen3.8-27b-gsq-rco-iq3s-mtp",
+      "system_fingerprint": "b10438-9d57ce456",
+      "object": "chat.completion",
+      "usage": {
+        "completion_tokens": 4,
+        "prompt_tokens": 26,
+        "total_tokens": 30,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      },
+      "id": "chatcmpl-WL0sP8AYFdee7JztvwyCNJaeTphxCiQZ",
+      "timings": {
+        "cache_n": 0,
+        "prompt_n": 26,
+        "prompt_ms": 490.201,
+        "prompt_per_token_ms": 18.853884615384615,
+        "prompt_per_second": 53.03946748374646,
+        "predicted_n": 4,
+        "predicted_ms": 113.549,
+        "predicted_per_token_ms": 37.84966666666667,
+        "predicted_per_second": 26.420311935816255,
+        "draft_n": 2,
+        "draft_n_accepted": 2
+      }
+    },
+    "elapsed_seconds": 0.6845202849999623
+  },
+  "service": {
+    "running": true,
+    "host": "<NODE_B_IP>",
+    "port": 18151,
+    "context": 262144,
+    "profile": "MTP2",
+    "reasoning_effort": "medium"
+  }
+}
